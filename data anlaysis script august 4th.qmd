@@ -1,0 +1,118 @@
+---
+title: "data analysis 4th August"
+format: html
+editor: visual
+---
+
+## read combined event table?
+
+```{r}
+library(readr)
+library(dplyr)
+library(stringr) # not yet cited! rmb to add
+
+# obtain the list of files path inside my event tables folder
+files <- list.files(
+  path = "event_tables", 
+  pattern = "_unfiltered", 
+  full.names = TRUE
+)
+
+files
+
+# purpose: read every csv event table and combine all csv into 1 big dataframe called all_files
+# map_df means put the list of files (variable files) as input, and apply the function onto each element
+all_files <- purrr::map_df(.x = files, function (individual_event_table){
+  file_name <- individual_event_table |>   # obtain the basename (without the folder name, only file name), store as variable
+    basename()
+  
+  table <- read_csv(individual_event_table) # read the csv table and store as variable table
+  table <- table |>             # create a new column called file_name,and update our variable table
+    mutate(file_name = file_name)
+  }
+  )
+
+# remove extension .csv
+all_files <- all_files %>%
+  mutate(
+    file_no_ext = str_replace(file_name, "\\.csv$", ""), # \\ is the escape character to type  dot
+    # the sign $ means to grab the .csv only if this string appears at the last of the current string 
+    file_prefix = str_replace(file_no_ext, "_unfiltered", ""),
+    event_number_padded = sprintf("%05d", `Event Number`), # make event number become 5 digits
+    event_id = paste0(file_prefix, "_ev", event_number_padded, "_rec", `Record`)
+  )
+
+all_files <- all_files %>%
+  select(-file_name, -file_no_ext, -event_number_padded)
+
+
+# create a new column and assume every event is real event (not noise)
+all_files <- all_files |>
+  mutate(
+    noise = "no"
+  )
+
+
+all_files <- all_files %>%
+  mutate(event_entry_number = dplyr::row_number())
+
+
+# read the noise table of event that were flagged as noise previously by ML model and passed my inspection
+
+
+
+noise_events <- read_csv("C:/Users/silic/Desktop/master_project_updated_pipeline_backup/noise_labeling/events_to_label/other_noise/final_excluded_noise_0550am_22July2026.csv",
+                   col_names = TRUE)
+View(noise_events)
+
+
+all_files <- all_files %>%
+  mutate(
+    noise = if_else(event_id %in% noise_events$event_id, "yes", "no")
+  )
+
+
+View(all_files)
+
+# save the big event table that has the noise column (of yes/no)
+write_csv(all_files, "all_events_with_noise.csv")
+# 508758 rows
+
+all_files_no_noise <- all_files %>%
+  filter(noise == "no")
+
+# save the big event table that has noise removed
+write_csv(all_files_no_noise, "all_events_no_noise.csv")
+# 505516 rows
+
+
+```
+
+
+```{r}
+library(dplyr)
+library(stringr)
+
+# Load your big event table
+events <- read.csv("C:/Users/silic/Downloads/bitbucket backup/all_events_no_noise.csv")
+
+View(events)
+
+# 2. Split into list of dataframes by recording prefix
+split_list <- split(events, events$file_prefix)
+split_list # why is there only 471 elements?
+
+length(unique(events$file_prefix))
+
+# 3. Write each recording's events to its own CSV
+output_folder <- "sorted_events"
+dir.create(output_folder, showWarnings = FALSE)
+
+for (recording in names(split_list)) {
+  out_path <- file.path(output_folder, paste0(recording, "_events.csv"))
+  write.csv(split_list[[recording]], out_path, row.names = FALSE)
+  message("Saved: ", out_path)
+}
+
+```
+
