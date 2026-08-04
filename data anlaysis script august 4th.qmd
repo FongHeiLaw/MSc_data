@@ -61,7 +61,7 @@ all_files <- all_files %>%
 
 
 
-noise_events <- read_csv("C:/Users/silic/Desktop/master_project_updated_pipeline_backup/noise_labeling/events_to_label/other_noise/final_excluded_noise_0550am_22July2026.csv",
+noise_events <- read_csv("C:/Users/silic/Desktop/master_project_updated_pipeline_backup/noise_labeling/events_to_label/other_noise/noise.csv",
                    col_names = TRUE)
 View(noise_events)
 
