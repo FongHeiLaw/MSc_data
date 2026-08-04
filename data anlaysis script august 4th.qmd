@@ -4,7 +4,7 @@ format: html
 editor: visual
 ---
 
-## read combined event table?
+## combine event table
 
 ```{r}
 library(readr)
