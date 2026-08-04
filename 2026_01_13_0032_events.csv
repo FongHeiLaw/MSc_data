@@ -1,0 +1,2 @@
+"Event.Number","Record","Event.Time..s.","Baseline..pA.","Peak..pA.","Amplitude..pA.","Rise.Time..ms.","Half.Width..ms.","Decay.Time..ms.","Decay.Fit.b0","Decay.Fit.b1","Decay.Fit.Tau..ms.","AUC..pA.ms.","rise_max_time","baseline_time","event_index","file_prefix","event_id","noise","event_entry_number"
+1,1,35.3621,-3973.824420384,0,3973.824420384,0.399999999999068,32.0999999999998,30.0000000000011,-25.760815086049,26.4059143331719,4.47802175678989,126472.212296971,35.36035,35.35995,207242,"2026_01_13_0032","2026_01_13_0032_ev00001_rec1","no",263450
