@@ -1,5 +1,16 @@
-this repo is supposed to contain the 477 abf files that I anlaysed (detected events with python)
+this repo main branch is supposed to contain the 477 abf files that I anlaysed (detected events with python)
 but only 20 files were uploaded here as example data because the abf files were too large
 also tried Bitbucket repo but also did not work
 so decided to only upload part of the dataset
 this github repo will be changed back to private/ deleted as soon as my dissertation is graded
+
+I also made three subbranches to store event tables that I deteceted
+mechanical stimulator, thermal stimulator, and 4stim events
+these csv files were created by first splitting the big event tables (without noise) into individual recording event tables with R studio
+then sort into folder based on metadata with python
+
+I had to split my big event table back into individual tables because github has size limit
+my big event tables contains  508758 rows with noise included, or 505516 rows without noise
+it was around 150MB, which exceed the github limit of 100MB ( i thought it was 100MB)
+I tried split the big event csv into three smaller table (50MB), then github says it needs to be size 25MB....
+so to work around this, I upload individual event tables of each recording instead
