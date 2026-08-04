@@ -18,7 +18,7 @@ editor: visual
 # I could have keep the raw small csv, then append the new column of data entry row, and event_id row in my folder using loop
 # but I did not know how to, and I thought uploading 1 big event table was more organized, therefore I combined stuff tgt
 # plus, 1 big event table was better for noise exclusion purpose since I trained my classifier using all recording 
-# but then reached size limit unexpectedely
+# but when I uploaded my big event table, I reached size limit unexpectedely
 # the script is still useful, since I have event_id, can use to plot indivudal event to inspect noise vs non noise
 # can also sort csv files into correct folder (since I already have my python script to sort abf files before event detection, it is easier for me to adopt my sorting script if I work on a folder of small csv, instead of writing a new script to sort and split the big csv into multiple csv of correct folder location (mechanical stimualtor/thermal/ 4stim)
 
