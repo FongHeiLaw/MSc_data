@@ -4,7 +4,24 @@ format: html
 editor: visual
 ---
 
-## combine event table
+# Overview of the scipt:
+# the upper half of my script combines all event tables (named xxx_unfilered.csv) output by python into 1 big event table
+# then I assigned new column noise: yes/no, based on my previously analyzed results (to select noise events)
+# I also added data entry row just to keep track of all raw detected events
+# the bottom half of my script split back all event tables into smaller individual recording
+# I did this because my existing R studio scripts to test hypothesis are different for mechanical stimualtor/thermal stimulator/ 4 stim files
+# because they have different sweep number, recording length (time), timing of when the stimulus was applied
+# and my existing script also works on a folder containing individual csv instead of a big one
+# I had function to read individual csv inside a loop, too troublesome to change
+
+# my situation/why I did these stuff:
+# I could have keep the raw small csv, then append the new column of data entry row, and event_id row in my folder using loop
+# but I did not know how to, and I thought uploading 1 big event table was more organized, therefore I combined stuff tgt
+# plus, 1 big event table was better for noise exclusion purpose since I trained my classifier using all recording 
+# but then reached size limit unexpectedely
+# the script is still useful, since I have event_id, can use to plot indivudal event to inspect noise vs non noise
+# can also sort csv files into correct folder (since I already have my python script to sort abf files before event detection, it is easier for me to adopt my sorting script if I work on a folder of small csv, instead of writing a new script to sort and split the big csv into multiple csv of correct folder location (mechanical stimualtor/thermal/ 4stim)
+
 
 ```{r}
 library(readr)
@@ -93,18 +110,17 @@ write_csv(all_files_no_noise, "all_events_no_noise.csv")
 library(dplyr)
 library(stringr)
 
-# Load your big event table
+# Load big event table
 events <- read.csv("C:/Users/silic/Downloads/bitbucket backup/all_events_no_noise.csv")
 
 View(events)
 
-# 2. Split into list of dataframes by recording prefix
+# split big dataframe into list of small event tables 
 split_list <- split(events, events$file_prefix)
 split_list # why is there only 471 elements?
 
-length(unique(events$file_prefix))
+# length(unique(events$file_prefix))
 
-# 3. Write each recording's events to its own CSV
 output_folder <- "sorted_events"
 dir.create(output_folder, showWarnings = FALSE)
 
