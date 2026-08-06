@@ -1,0 +1,154 @@
+# this is my updated python code to pick a single random event, then grab the abf file and plot the file trace of where the event were from
+
+import os
+import numpy as np
+import matplotlib.pyplot as plt
+import github_code as ephys
+from filter_minis import filter_minis
+import metadata_lookup
+import csv
+import random
+
+# the current variable 'filename' csv file contains all my detected events (include noises) which has amplitude >800 (created by R studio)
+''' R studio code here:
+# here I want a noise anlaysis
+main_data <- file_read("C:/Users/silic/Desktop/master_project_updated_pipeline_backup/all_events_with_noise.csv")
+main_data$review <- "no"
+main_data_amp_above_800 <- main_data |> filter(`Amplitude (pA)` > 800)
+
+write.csv(main_data_amp_above_800,
+          paste0("C:/Users/silic/Desktop/main_data_amp_above_800.csv"),
+          row.names = FALSE)
+'''
+
+
+# load my event table (with all noise, but only amplitude >800pA)
+filename = "C:/Users/silic/Desktop/main_data_amp_above_800.csv"  # File name
+
+with open(filename, mode='r') as file: 
+    csv_reader = csv.DictReader(file)  # Create DictReader
+
+    data_list = []  # List to store dictionaries
+    for row in csv_reader:
+        data_list.append(row)
+
+
+random.seed(123)   # set seed first
+# now select a random row of events, then try to find the abf file name, then go to abf folder and read that abf file, then plot the raw trace
+random_row = random.choice(data_list)
+
+# print the file prefix please
+print(random_row["file_prefix"])
+file_prefix = random_row["file_prefix"]
+
+folder = "C:/Users/silic/Desktop/master_project_updated_pipeline_backup/abf_folders_all_three_categories"
+files = os.listdir(folder)
+
+file_selected = []
+for file in files:
+    current_file = file
+    #print(current_file)
+    if os.path.splitext(current_file)[0] == file_prefix:
+        file_selected.append(current_file)
+print(file_selected[0]) # use [0] so that the list get dumped (right now it is a list containing 1 single string)
+file_selected_in_string = str(file_selected[0]) # might not be neccesary to convert to string, just for safety
+
+abf_folder = "C:/Users/silic/Desktop/master_project_updated_pipeline_backup/abf_folders_all_three_categories/"
+
+filepath = abf_folder + file_selected_in_string
+print("my file path is", filepath)
+
+# load metadata so that I can plot the mV number as plot title
+matadata_file_path = r"C:/Users/silic/Desktop/metadata_with_base_name_23_to_26_updated.csv"
+metadata_df = metadata_lookup.load_metadata(matadata_file_path)
+
+# fetch the mV number of this recording, store as settings[2]
+settings = metadata_lookup.get_settings_for_file(filepath, metadata_df) # this function output a list that has three elements, threshold, direction (-1/1), and mV (0/-70)
+#threshold_lower, direction, mv = settings # unpack
+#print(settings[2]) # this print the mV into console
+
+
+# exact same code used in batch processing event detection
+importer = ephys.importdata.ImportData(filepath, ext = ".ABF")
+data = importer.load_data()
+primary_data = data.get_primary_data()
+time_array = data.time_array
+time_array = time_array - 0.021
+# offset is 0.028 for mechanical stimulator
+
+FILTFS = [50, 150] # my butterworth filter bandstop bandpass, if this vafriable is NONE, it means dont filter
+
+for rec in range(data.num_recs):
+    print(f"Processing record {rec+1}/{data.num_recs}")
+
+    data_array = primary_data[rec, :]
+    time_ = time_array[rec, :]
+
+    # sampling rate in Hz
+    fs = 1.0 / float(data.ts)
+
+    # don't filter the stimulation period
+    # for example: leave 4-10 seconds untouched for mechanical stimulator
+    # leave 10.9 to 24.9 untouched for thermal stimulator
+    excluded_index_ranges = [(int(10.9 * fs), int(24.9 * fs))]
+    # data.ts is in seconds,  filter_minis expects milliseconds, so convert it with by multiplying 1000
+    data_array = filter_minis(
+        data_array,
+        dt_ms=float(data.ts) * 1000,
+        filtfs = FILTFS,
+        n_sweeps=1,  # each record is filtered individually here
+        excluded_index_ranges=excluded_index_ranges,
+    )
+    print("filtered this record")
+
+    plt.figure(figsize=(12, 4))
+    title = f"sweep {rec} voltage clamp at {settings[2]} mV {os.path.basename(filepath)}"
+    plt.title(title, fontsize=8)
+    plt.plot(time_, data_array, linewidth=0.5, color="black", zorder=1)
+    plt.show()
+
+
+
+
+############ notes section trying to learn how to work with csv imported as dictionary: ############
+
+# notes: how to read csv
+# read csv
+#with open(...) opens the file using a context manager. # https://www.geeksforgeeks.org/python/working-csv-files-python/
+#csv.DictReader(file) reads each row as a dictionary using headers as keys. #https://www.geeksforgeeks.org/python/working-csv-files-python/
+#data_list.append(row) stores each dictionary in a list. #https://www.geeksforgeeks.org/python/working-csv-files-python/
+
+
+# notes: how to filter the csv data, select row, get the column of a row, by row.get("Record"), by dictionary["Record] etc
+
+#print(data_list[1])# this print the first row of my csv
+#first_row = data_list[1]
+#print(first_row.get("Event Time (s)"))
+
+# data_list is a list of dictionary, each row is one dictionary
+# I want to extract and print only the event that belongs to sweep 1 (Record 0)
+# first get the row number of those event with 0 in their Record column (key)
+#if first_row["Record"] == "0":
+#    sweep_1 = "True"
+#    print(sweep_1)
+
+sweep_1_data = []
+for i in range(0,len(data_list)):
+    data = data_list[i]
+    if data["Record"] == "0":
+        #print("sweep 1 here, hi!")
+        sweep_1_data.append(data)
+
+print(len(sweep_1_data))
+
+# the above block can be shortened using list comprehension with
+# rec_1_events = [row for row in data_list if row.get("Record") == str(1)]
+
+rec_2_events = [row for row in data_list if row.get("Record") == str(2)]
+print(len(rec_2_events))
+
+
+
+
+
+  
