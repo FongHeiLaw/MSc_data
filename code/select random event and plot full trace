@@ -279,6 +279,40 @@ print(len(sweep_1_data))
 rec_2_events = [row for row in data_list if row.get("Record") == str(2)]
 print(len(rec_2_events))
 
+# written at 03:39 am 7th August
+# I confirmed all events have all features that I wanted to train on randomforest
+# function to check na of my data frame of big event table, logic suggested by Copilot, modified by me to make it understandable, e.g I dont like using try except, and i dont like using pandas etc, also debugged by Copilot, for loop wrote complteely by me
+def count_na(list_of_dictionary_with_each_element_as_an_event, column_name_to_check_na):
+    empty_list= [] # create empty list
+    for event in list_of_dictionary_with_each_element_as_an_event:
+
+        # fetch the value of the defined column, if it is na/ "", append na using np.nan, otherwise, append the raw value float, then can count na later
+        value = event[column_name_to_check_na]
+        
+        # check for NA before converting
+        if value is None:
+            empty_list.append(np.nan)
+        elif value == "":
+            empty_list.append(np.nan)
+
+        elif str(value).lower() in ["nan", "none", "inf", "-inf"]:  
+            empty_list.append(np.nan)
+
+        else:
+            empty_list.append(float(value))
+            
+    array_np = np.array(empty_list) # convert the list to NumPy array
+    return np.sum(np.isnan(array_np)) # count how many is na
+
+
+features = ["Amplitude (pA)","Rise Time (ms)","Half-Width (ms)","Decay Time (ms)","Decay Fit Tau (ms)","AUC (pA ms)",]
+
+for i in range(0, len(features)):
+    na_count = count_na(data_list, features[i])
+    print("NA count:", na_count)
+                
+
+
 
 
 
