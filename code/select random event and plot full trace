@@ -1,4 +1,5 @@
 # this is my updated python code to pick a single random event, then grab the abf file and plot the file trace of where the event were from
+# advanced version (01:13am 7th August) also adjust offset 0.021/0.028, and butterworth filter window based on which category that my abf file is from!
 
 import os
 import numpy as np
@@ -53,6 +54,55 @@ for file in files:
 print(file_selected[0]) # use [0] so that the list get dumped (right now it is a list containing 1 single string)
 file_selected_in_string = str(file_selected[0]) # might not be neccesary to convert to string, just for safety
 
+file_selected_in_string = str(file_selected[0]) # might not be neccesary to convert to string, just for safety
+
+file_name_no_extension = file_selected_in_string.rsplit(".", 1)[0] # remove everything after the last dot (1), and take the first part (the name, not the thing removed, so [0])
+
+
+# check what category of folder that my file is belong to
+
+# first, try to check the category of my abf file
+
+folder_thermal = "C:/Users/silic/Desktop/master_project_updated_pipeline_backup/events_thermal_stimulator"
+files_thermal = os.listdir(folder_thermal)
+
+folder_mechanical = "C:/Users/silic/Desktop/master_project_updated_pipeline_backup/events_mechanical_stimulator"
+files_mechanical = os.listdir(folder_mechanical)
+
+folder_4stim = "C:/Users/silic/Desktop/master_project_updated_pipeline_backup/events_4stim"
+files_4stim = os.listdir(folder_4stim)
+
+cleaned_thermal = list(map(lambda s: s.rsplit("_events.csv", 1)[0], files_thermal))
+cleaned_mechanical = list(map(lambda s: s.rsplit("_events.csv", 1)[0], files_mechanical))
+cleaned_4stim = list(map(lambda s: s.rsplit("_events.csv", 1)[0], files_4stim))
+
+if file_name_no_extension in cleaned_thermal: 
+    print("thermal!")
+    start_exc_region = 10.9
+    stop_exc_region = 24.9
+    print("updated excluded index ranges (filtering) for thermal data 10.9-24.9s")
+    offset = 0.021
+    print("updated offset for thermal data 0.021")
+
+if file_name_no_extension  in cleaned_mechanical:
+    print("mechanical!")
+    start_exc_region = 4
+    stop_exc_region = 10
+    print("updated excluded index ranges (filtering) for mech data 4-10s")
+    offset = 0.028
+    print("updated offset for thermal data 0.028")
+
+if file_name_no_extension  in cleaned_4stim:
+    print("4stim!")
+    start_exc_region = 0
+    stop_exc_region = 9
+    print("updated excluded index ranges (filtering) for 4stim data 0-9s")
+    offset= 0.021
+    print("updated offset for thermal data 0.021")
+
+
+
+
 abf_folder = "C:/Users/silic/Desktop/master_project_updated_pipeline_backup/abf_folders_all_three_categories/"
 
 filepath = abf_folder + file_selected_in_string
@@ -73,8 +123,8 @@ importer = ephys.importdata.ImportData(filepath, ext = ".ABF")
 data = importer.load_data()
 primary_data = data.get_primary_data()
 time_array = data.time_array
-time_array = time_array - 0.021
-# offset is 0.028 for mechanical stimulator
+time_array = time_array - offset
+# offset is 0.028 for mechanical stimulator, 0.021 for 4stim and mechanical stimulator
 
 FILTFS = [50, 150] # my butterworth filter bandstop bandpass, if this vafriable is NONE, it means dont filter
 
@@ -90,7 +140,7 @@ for rec in range(data.num_recs):
     # don't filter the stimulation period
     # for example: leave 4-10 seconds untouched for mechanical stimulator
     # leave 10.9 to 24.9 untouched for thermal stimulator
-    excluded_index_ranges = [(int(10.9 * fs), int(24.9 * fs))]
+    excluded_index_ranges = [(int(start_exc_region * fs), int(stop_exc_region * fs))]
     # data.ts is in seconds,  filter_minis expects milliseconds, so convert it with by multiplying 1000
     data_array = filter_minis(
         data_array,
