@@ -1,5 +1,7 @@
-# this is my updated python code to pick a single random event, then grab the abf file and plot the file trace of where the event were from
+# first version: pick a single random event, then grab the abf file and plot the full trace
 # advanced version (01:13am 7th August) also adjust offset 0.021/0.028, and butterworth filter window based on which category that my abf file is from!
+# updated version (01:35am 7th August), now plot the sweep of the selected random event (store the time_ and time_array inside the loop when we filter each sweep), later retrieve that stored info, according to sweep number (used as index to retrieve the element since data info was stored one by one of each loop run)
+
 
 import os
 import numpy as np
@@ -151,11 +153,29 @@ for rec in range(data.num_recs):
     )
     print("filtered this record")
 
-    plt.figure(figsize=(12, 4))
-    title = f"sweep {rec} voltage clamp at {settings[2]} mV {os.path.basename(filepath)}"
-    plt.title(title, fontsize=8)
-    plt.plot(time_, data_array, linewidth=0.5, color="black", zorder=1)
-    plt.show()
+    # store this filtered record, time and also the raw current value first
+    info_list = [sweep_count, time_, data_array]
+    filtered_trace.append(info_list)
+
+    sweep_count = sweep_count + 1
+    print("sweep_count is", sweep_count)
+                                           
+
+
+
+# now I want to find the sweep number of my randomly selected event row of my original main big all events table
+sweep_number_of_my_random_event = random_row["Record"] # ya I know my variable name is too long, what you gonna do about it huh?????
+print("sweep number is", sweep_number_of_my_random_event)
+
+# now I want to grab the time_ and the time_array of my stored filtered trace
+sweep_data = filtered_trace[int(sweep_number_of_my_random_event)]
+
+
+plt.figure(figsize=(12, 4))
+title = f"sweep {sweep_number_of_my_random_event} voltage clamp at {settings[2]} mV {os.path.basename(filepath)}"
+plt.title(title, fontsize=8)
+plt.plot(sweep_data[1], sweep_data[2], linewidth=0.5, color="black", zorder=1)
+plt.show()
 
 
 
