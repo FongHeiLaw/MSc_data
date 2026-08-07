@@ -2,6 +2,7 @@
 # advanced version (01:13am 7th August) also adjust offset 0.021/0.028, and butterworth filter window based on which category that my abf file is from!
 # updated version (01:35am 7th August), now plot the sweep of the selected random event (store the time_ and time_array inside the loop when we filter each sweep), later retrieve that stored info, according to sweep number (used as index to retrieve the element since data info was stored one by one of each loop run)
 # newest version (03:02am 7th AUgust), now can plot a single random event, with red dot as peak, blue dot as baseline (of the filtered trace)
+# new version (04:53am 7th AIgust), now trained isolation forest to flag outliers, then use R stduio to select random event (top outliers screo, and random non outliers), saved as csv, ready to be used/looped to plot all events
 
 import os
 import numpy as np
@@ -325,8 +326,137 @@ for dictionary_row in data_list:
 X = np.array(X_list, dtype=float)
 print(X.shape)
 
+### now detect outliers
+
+# reference: https://www.kaggle.com/code/ksmooi/anomaly-detection-in-time-series-isolationforest
+# Initialize RobustScaler to scale features while being robust to outliers
+scaler = RobustScaler()
+
+# refs: https://www.kaggle.com/code/ksmooi/anomaly-detection-in-time-series-isolationforest
+# Fit the scaler on the feature matrix and transform the features accordingly
+#X = scaler.fit_transform(data[features])  #TypeError: 'RawData' object is not subscriptable
+X = RobustScaler().fit_transform(X)
+
+# refs: https://www.kaggle.com/code/ksmooi/anomaly-detection-in-time-series-isolationforest
+# ---------------------------------------------------
+# Step 6: Calculate Dynamic Contamination Rate
+# ---------------------------------------------------
+
+def estimate_contamination(X):
+    """
+    Estimate the contamination rate based on the proportion of outliers in each feature.
+    
+    Parameters:
+    - X: numpy array of feature values
+    
+    Returns:
+    - average_contamination: float representing the average contamination rate across features
+    """
+    outlier_proportions = []
+    for feature_idx in range(X.shape[1]):
+        # Extract all values for the current feature
+        feature_values = X[:, feature_idx]
+        
+        # Calculate mean and standard deviation of the feature
+        mean = np.mean(feature_values)
+        std = np.std(feature_values)
+        
+        # Count the number of outliers beyond 3 standard deviations from the mean
+        outliers = np.sum(np.abs(feature_values - mean) > 3 * std)
+        
+        # Calculate the proportion of outliers in the current feature
+        outlier_proportions.append(outliers / len(feature_values))
+    
+    # Return the average contamination rate across all features
+    return np.mean(outlier_proportions)
+
+# Estimate the contamination rate using the defined function
+contamination = estimate_contamination(X)
+
+# Bound the contamination rate between 1% and 20% to ensure reasonable model assumptions
+contamination = min(max(contamination, 0.01), 0.2)  # Bound between 1% and 20%
+
+# this part proabbly not necceasry i dont care accuracy lol, but i copied and pasted anyway, i wont need to verify/test/predict
+# ---------------------------------------------------
+# Step 7: Train/Validation Split
+# ---------------------------------------------------
+
+# Split the dataset into training and validation sets with an 80-20 split
+# This ensures that the model is trained on a majority of the data and validated on a representative subset
+X_train, X_val = train_test_split(X, test_size=0.2, random_state=42)
+
+# ---------------------------------------------------
+# Step 8: Train Isolation Forest with Dynamic Contamination
+# ---------------------------------------------------
+
+# Initialize the Isolation Forest model with the estimated contamination rate
+# - 'random_state=42' ensures reproducibility
+clf = IsolationForest(contamination=contamination, random_state=42)
+
+# Fit the Isolation Forest model on the training data to learn the patterns of normal instances
+clf.fit(X_train)
+
+
+scores = -clf.score_samples(X)
+
+# by copilot to substitue pandas make new column, now we add score to each dictionary, pretty sure enumerate was in PCAP/PCEP syllabus with open source common knowledge, so, unecceasry to cite copilot 
+for i, score in enumerate(scores):
+    data_list[i]["outlier_score"] = score
+
+
+with open("outlier_scores_0423am_7th_August.csv", "w", newline="") as f:
+    writer = csv.DictWriter(f, fieldnames=data_list[0].keys())
+    writer.writeheader()
+    writer.writerows(data_list)
+
+ 
+# then select event to plot
+# read isolation forest trained
+
+outliers_table <- read_csv("C:/Users/silic/Desktop/master_project_updated_pipeline_backup/outlier_scores_0423am_7th_August.csv")
+View(outliers_table)
 
 
 
+
+###
+
+
+select_events_to_label <- function(df, n_outliers = 50, n_not_outliers = 20, seed = 0) {
+
+  # 3. Sort by score
+  outliers_table_sorted <- outliers_table[order(outliers_table$outlier_score, decreasing = TRUE), ]# sort by biggest first
+
+  # 4. Top-N outliers
+  n_outliers <- min(n_outliers, nrow(outliers_table_sorted))
+  outlier_part <- outliers_table_sorted[1:n_outliers, ] # get the top 50 outliers rows, all columns
+  outlier_part$is_outlier <- "yes"
+
+  # 5. Remaining events
+  remaining <- outliers_table_sorted[(n_outliers + 1):nrow(outliers_table_sorted), ] # get the remainig non outliers
+
+  # 6. Random sample from remaining
+  set.seed(seed)
+  n_not_outliers <- min(n_not_outliers, nrow(remaining)) # if random (non ouliers) is fewer than the remaining row, just put the remianing row number assign this as our random value (for plotting non outliers)
+  random_idx <- sample(nrow(remaining), n_not_outliers) # draw n_not_outliers from our remaining row numbers
+  random_part <- remaining[random_idx, ]
+  random_part$is_outlier <- "no"
+
+  # 7. Combine and shuffle
+  combined <- rbind(outlier_part, random_part)
+
+
+  return(combined)
+}
+
+plot<- select_events_to_label(outliers_table, 3, 3)
+
+write.csv(plot,
+          paste0("C:/Users/silic/Desktop/events_to_plot_from_outliers_table.csv"),
+          row.names = FALSE)
+
+
+
+# then can start import this csv, select random row/ all rows one by one, plot the events (the filtering logic filtered all sweeps so probably gonna be slow)
 
   
