@@ -90,7 +90,7 @@ if file_name_no_extension  in cleaned_mechanical:
     stop_exc_region = 10
     print("updated excluded index ranges (filtering) for mech data 4-10s")
     offset = 0.028
-    print("updated offset for thermal data 0.028")
+    print("updated offset for mechanical data 0.028")
 
 if file_name_no_extension  in cleaned_4stim:
     print("4stim!")
@@ -98,7 +98,7 @@ if file_name_no_extension  in cleaned_4stim:
     stop_exc_region = 9
     print("updated excluded index ranges (filtering) for 4stim data 0-9s")
     offset= 0.021
-    print("updated offset for thermal data 0.021")
+    print("updated offset for 4stim data 0.021")
 
 
 
