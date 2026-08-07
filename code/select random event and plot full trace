@@ -3,6 +3,12 @@
 # updated version (01:35am 7th August), now plot the sweep of the selected random event (store the time_ and time_array inside the loop when we filter each sweep), later retrieve that stored info, according to sweep number (used as index to retrieve the element since data info was stored one by one of each loop run)
 # newest version (03:02am 7th AUgust), now can plot a single random event, with red dot as peak, blue dot as baseline (of the filtered trace)
 # new version (04:53am 7th AIgust), now trained isolation forest to flag outliers, then use R stduio to select random event (top outliers screo, and random non outliers), saved as csv, ready to be used/looped to plot all events
+# new version (05:17am 7th August), now can select random event numbers ( i put 3 and 3 outliers and non oultiers as example/test rn)
+
+
+##### PART 1 is test code, trying to build part 2 (loop pver paer 1, except the random forest one) #############
+##### note that part 1 and 2 have many repeated code/similarity, just did not want to delete in case I need both later ####
+#### part 2 is just looping over part 1, so have correct indentation ########
 
 import os
 import numpy as np
@@ -458,5 +464,231 @@ write.csv(plot,
 
 
 # then can start import this csv, select random row/ all rows one by one, plot the events (the filtering logic filtered all sweeps so probably gonna be slow)
+
+############## PART 2 FINAL CODE ####################
+############## correct indentation to plot all events given a event table ################
+
+
+import os
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.ensemble import IsolationForest
+from sklearn.preprocessing import RobustScaler
+from sklearn.model_selection import train_test_split
+
+import github_code as ephys
+from filter_minis import filter_minis
+
+import metadata_lookup
+import csv
+
+import random
+
+
+####
+
+my_folder = "C:/Users/silic/Desktop/master_project_updated_pipeline_backup/plot_event_my_code_outliers_0507am"
+
+
+# try to check the category of my abf file
+
+folder_thermal = "C:/Users/silic/Desktop/master_project_updated_pipeline_backup/events_thermal_stimulator"
+files_thermal = os.listdir(folder_thermal)
+#print(files_thermal)
+
+folder_mechanical = "C:/Users/silic/Desktop/master_project_updated_pipeline_backup/events_mechanical_stimulator"
+files_mechanical = os.listdir(folder_mechanical)
+#print(files_mechanical)
+
+folder_4stim = "C:/Users/silic/Desktop/master_project_updated_pipeline_backup/events_4stim"
+files_4stim = os.listdir(folder_4stim)
+#print(files_4stim)
+
+cleaned_thermal = list(map(lambda s: s.rsplit("_events.csv", 1)[0], files_thermal))
+cleaned_mechanical = list(map(lambda s: s.rsplit("_events.csv", 1)[0], files_mechanical))
+cleaned_4stim = list(map(lambda s: s.rsplit("_events.csv", 1)[0], files_4stim))
+#print(cleaned_thermal)
+
+
+#####
+abf_folder = "C:/Users/silic/Desktop/master_project_updated_pipeline_backup/abf_folders_all_three_categories/"
+
+
+#filename = "C:/Users/silic/Desktop/main_data_amp_above_800.csv"  
+#filename = "C:/Users/silic/Desktop/master_project_updated_pipeline_backup/all_events_with_noise.csv" 
+filename = "C:/Users/silic/Desktop/events_to_plot_from_outliers_table.csv"
+
+
+with open(filename, mode='r') as file: 
+    csv_reader = csv.DictReader(file)  # Create DictReader
+
+    data_list = []  # List to store dictionaries
+    for row in csv_reader:
+        data_list.append(row)
+
+print(len(data_list))
+
+folder = "C:/Users/silic/Desktop/master_project_updated_pipeline_backup/abf_folders_all_three_categories"
+files = os.listdir(folder)
+
+for i in range(0, len(data_list)):
+    random_row = data_list[i]
+    file_prefix = random_row["file_prefix"]
+    
+    # now grab the correct abf file using my abf folder, with the matched file_prefix
+    file_selected = []
+    for file in files: # loop over all file name in my abf folder
+        current_file = file # store current element file name to match later
+        if os.path.splitext(current_file)[0] == file_prefix:
+            file_selected.append(current_file)
+    file_selected_in_string = str(file_selected[0]) # might not be neccesary to convert to string, just for safety
+    file_name_no_extension = file_selected_in_string.rsplit(".", 1)[0] # remove everything after the last dot (1), and take the first part (the name, not the thing removed, so [0])
+
+
+    # check what category of folder that my file is belong to
+    if file_name_no_extension in cleaned_thermal: # needs index since it is a list of string?w wait
+        print("thermal!")
+        start_exc_region = 10.9
+        stop_exc_region = 24.9
+        print("updated excluded index ranges (filtering) for thermal data 10.9-24.9s")
+        offset = 0.021
+        print("updated offset for thermal data 0.021")
+
+    if file_name_no_extension  in cleaned_mechanical:
+        print("mechanical!")
+        start_exc_region = 4
+        stop_exc_region = 10
+        print("updated excluded index ranges (filtering) for mech data 4-10s")
+        offset = 0.028
+        print("updated offset for mech data 0.028")
+
+    if file_name_no_extension  in cleaned_4stim:
+        print("4stim!")
+        start_exc_region = 0
+        stop_exc_region = 9
+        print("updated excluded index ranges (filtering) for 4stim data 0-9s")
+        offset= 0.021
+        print("updated offset for 4stim data 0.021")
+
+    filepath = abf_folder + file_selected_in_string
+    print("my file path is", filepath)
+
+    # load metadata so that I can plot the mV number as plot title
+    matadata_file_path = r"C:/Users/silic/Desktop/metadata_with_base_name_23_to_26_updated.csv"
+    metadata_df = metadata_lookup.load_metadata(matadata_file_path)
+
+    # fetch the mV number of this recording, store as settings[2]
+    settings = metadata_lookup.get_settings_for_file(filepath, metadata_df) # this function output a list that has three elements, threshold, direction (-1/1), and mV (0/-70)
+    #threshold_lower, direction, mv = settings # unpack
+    #print(settings[2]) # this print the mV into console
+
+    # exact same code used in batch processing event detection
+    importer = ephys.importdata.ImportData(filepath, ext = ".ABF")
+    data = importer.load_data()
+    primary_data = data.get_primary_data()
+    time_array = data.time_array
+    time_array = time_array - offset # offset is 0.028 for mechanical stimulator, 0.021 for mechanical stimulator and 4stim, defined earlier in the script
+
+    FILTFS = [50, 150] # my butterworth filter bandstop bandpass, if this vafriable is NONE, it means dont filter
+    filtered_trace = []
+    sweep_count = 0
+
+    for rec in range(data.num_recs):
+        print(f"Processing record {rec+1}/{data.num_recs}")
+
+        data_array = primary_data[rec, :]
+        time_ = time_array[rec, :]
+
+
+        # sampling rate in Hz
+        fs = 1.0 / float(data.ts)
+
+
+        excluded_index_ranges = [(int(start_exc_region * fs), int(stop_exc_region * fs))]
+        # dt (data.ts) is in seconds,  filter_minis expects milliseconds,
+        data_array = filter_minis(
+            data_array,
+            dt_ms=float(data.ts) * 1000.0,
+            filtfs = FILTFS,
+            n_sweeps=1,  # each record is filtered individually here
+            excluded_index_ranges=excluded_index_ranges,
+            )
+        print("filtered this record")
+
+        # store this filtered record, time and also the raw current value first
+        info_list = [sweep_count, time_, data_array]
+        filtered_trace.append(info_list)
+
+        sweep_count = sweep_count + 1
+        print("sweep_count is", sweep_count)
+                                            
+
+    # now I want to find the sweep number of my randomly selected event row of my original main big all events table
+    sweep_number_of_my_random_event = int(random_row["Record"]) # ya I know my variable name is too long, what you gonna do about it huh?????
+    print("sweep number is", sweep_number_of_my_random_event)
+
+    # now I want to grab the time_ and the time_array of my stored filtered trace
+    sweep_data = filtered_trace[int(sweep_number_of_my_random_event)]
+
+
+
+    # now updated version want to plot single event window instead!)
+
+    event_time = float(random_row["Event Time (s)"])
+    peak_current = float(random_row["Peak (pA)"])
+    amp = float(random_row["Amplitude (pA)"])
+    baseline_time = float(random_row["baseline_time"])
+    baseline_current = float(random_row["Baseline (pA)"])
+    event_id_label = random_row["event_id"]
+    event_index_number = int(random_row["event_index"]) # i need the sample number of raw detected peak because in case my event is very early/very late in the recording, that the sample was not enough for me to select to plot
+
+    print(event_id_label, event_time , peak_current, amp , baseline_time , baseline_current)
+
+    window_start = 30 # in ms
+    window_stop = 60 
+
+
+    ts = float(data.ts) # ts is the sampling interval, the time between 2 samples of my data
+    n_samples = primary_data.shape[1] # my trace is stored with a structure like this primary_data[record_index, sample_index], so by shape[1] it means get the recording index
+    before_n = int(round((window_start / 1000) / ts)) # convert 15ms into s, then, find out the number of samples that I need to grab (before my peak), as the data contained at the start of my event, I divided this time by the sampling interval, i know how many samples that my interval spans over window
+    after_n = int(round((window_stop / 1000) / ts))
+
+
+    # then, i need to make sure 
+
+    lower_bound_window_sample_index = max(0, event_index_number - before_n) # if my event index number is lower than the number of sample that I select for window start,i.e event_index_number - before_n becomes negative, I take 0 instead (take the maximum out of two input values)
+    upper_bound_window_sample_index = min(n_samples, event_index_number + after_n) # same logic as above
+
+    t = sweep_data[1][lower_bound_window_sample_index:upper_bound_window_sample_index] # this means time_ 
+    trace = sweep_data[2][lower_bound_window_sample_index:upper_bound_window_sample_index] # this means time_array, current values
+
+
+
+
+    fig, ax = plt.subplots(figsize=(4, 3))
+    ax.plot(t, trace, color="black", linewidth=0.8)
+    ax.axvline(time_array[sweep_number_of_my_random_event, event_index_number],color="red",linestyle="--",linewidth=0.8, label = "detected peak")
+        
+    # try add dots to baseline
+    ax.scatter(baseline_time, baseline_current, color="blue", s=10, label="baseline", zorder=2)
+
+    # now add detected peak as dot
+    ax.scatter(event_time, peak_current, color="red", s=10, label="peak", zorder=2)
+
+
+    title = f"{event_id_label} {settings[2]} mV amp = {round(amp)} pA" 
+    ax.set_title(title, fontsize=8)
+    ax.set_xlabel("Time (s)")
+    ax.set_ylabel("Current (pA)")
+    ax.legend(fontsize=6, loc="upper right", frameon=False)
+    fig.tight_layout()
+
+    fig.savefig(os.path.join(my_folder, f"{event_id_label}.png"), dpi=100)
+    plt.show()
+    plt.close(fig)
+
+
 
   
