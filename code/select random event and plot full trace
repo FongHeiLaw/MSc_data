@@ -19,21 +19,9 @@ import metadata_lookup
 import csv
 import random
 
-# the current variable 'filename' csv file contains all my detected events (include noises) which has amplitude >800 (created by R studio)
-''' R studio code here:
-# here I want a noise anlaysis
-main_data <- file_read("C:/Users/silic/Desktop/master_project_updated_pipeline_backup/all_events_with_noise.csv")
-main_data$review <- "no"
-main_data_amp_above_800 <- main_data |> filter(`Amplitude (pA)` > 800)
+# the variable 'filename' csv file contains all my detected events (include noises) (file created by R studio previously, by combining all _unfiltered.csv that was uploaded onto BitBucket)
 
-write.csv(main_data_amp_above_800,
-          paste0("C:/Users/silic/Desktop/main_data_amp_above_800.csv"),
-          row.names = FALSE)
-'''
-
-
-# load my event table (with all noise, but only amplitude >800pA)
-filename = "C:/Users/silic/Desktop/main_data_amp_above_800.csv"  # File name
+filename = "C:/Users/silic/master_project_updated_pipeline_backup/all_events_with_noise.csv"  # File name
 
 with open(filename, mode='r') as file: 
     csv_reader = csv.DictReader(file)  # Create DictReader
@@ -404,6 +392,15 @@ clf.fit(X_train)
 
 
 scores = -clf.score_samples(X)
+
+
+###################################
+# to try re-create my old result, i only used 5 features instead of 6 features
+# I also try this auto contamination instead of following online website
+# replace the contamination fucntion woth the following line will reproduce my old results (the pdf noise uploaded in this repository)
+# "clf = IsolationForest(n_estimators=300, contamination="auto", random_state=0)"
+
+######################################
 
 # by copilot to substitue pandas make new column, now we add score to each dictionary, pretty sure enumerate was in PCAP/PCEP syllabus with open source common knowledge, so, unecceasry to cite copilot 
 for i, score in enumerate(scores):
