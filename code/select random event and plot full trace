@@ -1,7 +1,7 @@
 # first version: pick a single random event, then grab the abf file and plot the full trace
 # advanced version (01:13am 7th August) also adjust offset 0.021/0.028, and butterworth filter window based on which category that my abf file is from!
 # updated version (01:35am 7th August), now plot the sweep of the selected random event (store the time_ and time_array inside the loop when we filter each sweep), later retrieve that stored info, according to sweep number (used as index to retrieve the element since data info was stored one by one of each loop run)
-
+# newest version (03:02am 7th AUgust), now can plot a single random event, with red dot as peak, blue dot as baseline (of the filtered trace)
 
 import os
 import numpy as np
@@ -176,6 +176,68 @@ title = f"sweep {sweep_number_of_my_random_event} voltage clamp at {settings[2]}
 plt.title(title, fontsize=8)
 plt.plot(sweep_data[1], sweep_data[2], linewidth=0.5, color="black", zorder=1)
 plt.show()
+
+
+# now updated version want to plot single event window instead!)
+
+event_time = float(random_row["Event Time (s)"])
+peak_current = float(random_row["Peak (pA)"])
+amp = float(random_row["Amplitude (pA)"])
+baseline_time = float(random_row["baseline_time"])
+baseline_current = float(random_row["Baseline (pA)"])
+event_id_label = random_row["event_id"]
+event_index_number = int(random_row["event_index"]) # i need the sample number of raw detected peak because in case my event is very early/very late in the recording, that the sample was not enough for me to select to plot
+
+print(event_id_label, event_time , peak_current, amp , baseline_time , baseline_current)
+
+window_start = 15 # in ms
+window_stop = 30 
+
+
+ts = float(data.ts) # ts is the sampling interval, the time between 2 samples of my data
+n_samples = primary_data.shape[1] # my trace is stored with a structure like this primary_data[record_index, sample_index], so by shape[1] it means get the recording index
+before_n = int(round((window_start / 1000) / ts)) # convert 15ms into s, then, find out the number of samples that I need to grab (before my peak), as the data contained at the start of my event, I divided this time by the sampling interval, i know how many samples that my interval spans over window
+after_n = int(round((window_stop / 1000) / ts))
+
+
+# then, i need to make sure sample index of window start and window stop makes sense
+lower_bound_window_sample_index = max(0, event_index_number - before_n) # if my event index number is lower than the number of sample that I select for window start,i.e event_index_number - before_n becomes negative, I take 0 instead (take the maximum out of two input values)
+upper_bound_window_sample_index = min(n_samples, event_index_number + after_n) # same logic as above
+
+t = sweep_data[1][lower_bound_window_sample_index:upper_bound_window_sample_index] # this means time_ 
+trace = sweep_data[2][lower_bound_window_sample_index:upper_bound_window_sample_index] # this means time_array, current values
+
+#plt.figure(figsize=(12, 4))
+#title = f"event id {event_id_label} at {settings[2]} mV {os.path.basename(filepath)}"
+#plt.title(title, fontsize=8)
+#plt.plot(t, trace, color="black", linewidth=0.8)
+#plt.show()
+
+my_folder = "C:/Users/silic/Desktop/master_project_updated_pipeline_backup/plot_event_my_code"
+
+
+fig, ax = plt.subplots(figsize=(4, 3))
+ax.plot(t, trace, color="black", linewidth=0.8)
+ax.axvline(time_array[sweep_number_of_my_random_event, event_index_number],color="red",linestyle="--",linewidth=0.8, label = "detected peak")
+
+# try add dots to baseline
+ax.scatter(baseline_time, baseline_current, color="blue", s=10, label="baseline", zorder=2)
+
+# now add detected peak as dot
+ax.scatter(event_time, peak_current, color="red", s=10, label="peak", zorder=2)
+
+
+title = f"{event_id_label} [{settings[2]} mV] amp = {round(amp)} pA" 
+ax.set_title(title, fontsize=8)
+ax.set_xlabel("Time (s)")
+ax.set_ylabel("Current (pA)")
+ax.legend(fontsize=6, loc="upper right", frameon=False)
+fig.tight_layout()
+
+fig.savefig(os.path.join(my_folder, f"{event_id_label}.png"), dpi=100)
+plt.show()
+
+
 
 
 
