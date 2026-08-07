@@ -313,6 +313,18 @@ for i in range(0, len(features)):
                 
 
 
+### detect outliers dataframe preparation 03:55am 7th August
+# these code first format my data frame into same format that random forest expect, like the INtroductionto macgine ;learning with python C andres miller or sth library book
+features = ["Amplitude (pA)","Rise Time (ms)","Half-Width (ms)","Decay Time (ms)","Decay Fit Tau (ms)","AUC (pA ms)",]
+
+X_list = []
+for dictionary_row in data_list:
+    values_that_are_my_feature_columns = [float(dictionary_row[feature_col]) for feature_col in features]
+
+    X_list.append(values_that_are_my_feature_columns)
+X = np.array(X_list, dtype=float)
+print(X.shape)
+
 
 
 
