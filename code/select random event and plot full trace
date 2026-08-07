@@ -185,8 +185,9 @@ event_index_number = int(random_row["event_index"]) # i need the sample number o
 
 print(event_id_label, event_time , peak_current, amp , baseline_time , baseline_current)
 
-window_start = 15 # in ms
-window_stop = 30 
+#old code used 15 ms and 30ms, i like 30 and 60ms more, just so that the baseline point can show up nicely on plotted trace instead of blank area
+window_start =  30 #in ms
+window_stop = 60
 
 
 ts = float(data.ts) # ts is the sampling interval, the time between 2 samples of my data
