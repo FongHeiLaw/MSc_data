@@ -1,0 +1,228 @@
+import os
+import glob
+import numpy as np
+import pandas as pd
+import pyabf
+import matplotlib.pyplot as plt
+
+abf_folder = "C:/Users/silic/Desktop/master_project_updated_pipeline_backup/abf_folders_all_three_categories"
+
+output_folder = os.path.join(abf_folder, "artifact_detection_results_new")
+
+plot_folder = os.path.join(abf_folder, "artifact_plots_new")
+
+os.makedirs(output_folder, exist_ok=True)
+
+os.makedirs(plot_folder, exist_ok=True)
+            
+# minimum jump
+amp_threshold = 50   # pA
+
+# artifact must return within this many samples
+return_win_samp = 8
+
+# return must be within +/- this amount of the value immediately before the artifact
+return_buffer = 10      # pA
+
+def find_sharp_artifacts(data,times,amp_threshold,return_win_samp,return_buffer=100,):
+    artifacts_list = []
+    i = 1 #set i = 1 instead of 0 because I need pre-artefact value to compare amp with, to determine jump
+
+    while i < len(data) - return_win_samp:
+
+        pre_artifact_value = data[i - 1] # the raw current value of pre artefact jump
+        jump = data[i] - pre_artifact_value # the difference between raw current value, and the value of pre artefact jump, to determine the real jump
+
+        #check if the real jump is bigger/equal to threshold
+        if abs(jump) >= amp_threshold:
+            return_samp = None # wont update this if the artrfact was not found in curreny window
+
+            # look for return within allowed window, for every sample between 1 and 5 (return within 5 samp), check if current sample value difference from pre arfetfact value is <100 (the buffer), to determine if this sample has return to pre artefact baseline
+            for window_sample_index in range(1,return_win_samp + 1): 
+                
+                check_index = i + window_sample_index
+                
+                difference_from_baseline = abs(data[check_index]-pre_artifact_value)
+
+                if difference_from_baseline <= return_buffer:
+                    return_samp = check_index
+                    break
+
+                
+
+    
+            if return_samp is not None: # if artefact was found (definiation = big jump + immediate;y return to baseline_
+                start_idx = i
+                end_idx = return_samp
+                artifact_data = data[start_idx:end_idx + 1]
+
+                differences = (artifact_data- pre_artifact_value)
+
+                # peak meabs the biggest absolute deviation
+                peak_relative_idx = np.argmax(np.abs(differences))
+
+                # convert relative index back to original index
+                peak_idx = start_idx + peak_relative_idx
+
+                # get times from times array
+                start_time_s = times[start_idx]
+                return_time_s = times[end_idx]
+                peak_time_s = times[peak_idx]
+
+                peak_value_pA = data[peak_idx]
+
+                artifacts_list.append({
+                    "start_sample": int(start_idx),
+                    "return_sample": int(end_idx),
+                    "number_samples": int(end_idx - start_idx + 1),
+
+                    "start_time_s": float(start_time_s),
+                    "return_time_s": float(return_time_s),
+                    "peak_time_s": float(peak_time_s),
+
+                    "peak_value_pA": float(peak_value_pA)
+                    })
+
+ 
+                i = end_idx + 1
+                continue
+
+        i += 1
+
+    return artifacts_list
+
+
+def save_artifact_plot(data,times,artifacts_list,filename,sweep_number,plot_folder,):
+
+    fig, ax = plt.subplots(figsize=(18, 7))
+
+    ax.plot(times,data,color="black",linewidth=0.6,)
+
+    # plot all artifact in this sweep
+
+    for artifact_number, artifact in enumerate(artifacts_list,start=1):
+        start_time = artifact["start_time_s"]
+
+        return_time = artifact["return_time_s"]
+
+        peak_time = artifact["peak_time_s"]
+
+        peak_value = artifact["peak_value_pA"]
+
+        ax.scatter(peak_time,peak_value,color="red",s=30,zorder=5)
+        ax.axvline(start_time, color="blue", linestyle="--")
+        ax.axvline(return_time, color="green", linestyle="--")
+
+    ax.set_xlabel("Time (s)")
+
+    ax.set_ylabel("Current (pA)")
+
+    ax.set_title(f"{filename}  sweep {sweep_number} {len(artifacts_list)} artifacts")
+
+    fig.tight_layout()
+
+    base_name = os.path.splitext(filename)[0]
+
+    output_picture = os.path.join(plot_folder,f"{base_name}_sweep{sweep_number}_artifacts.png")
+
+    fig.savefig(output_picture,dpi=300)
+
+    plt.close(fig)
+    return output_picture
+
+
+
+abf_files = glob.glob(os.path.join(abf_folder,"**","*.abf"),recursive=True)
+
+
+print(
+    f"abf files found: {len(abf_files)}"
+)
+
+print(f"results folder: {output_folder}")
+
+print(f"plot folder: {plot_folder}")
+
+
+print(f"jump:{amp_threshold} pA")
+
+print(f"within: {return_win_samp} samples")
+
+print(f"buffer: {return_buffer} pA")
+
+
+
+all_artifacts = []
+
+
+for file_number, abf_path in enumerate(abf_files,start=1):
+
+    filename = os.path.basename(abf_path)
+
+
+    try:
+        abf = pyabf.ABF(abf_path)
+
+        for sweep_number in range(abf.sweepCount):
+
+            abf.setSweep(sweep_number)
+
+
+            data = np.asarray(abf.sweepY,dtype=float)
+
+            times = np.asarray(abf.sweepX,dtype=float)
+
+            artifacts = find_sharp_artifacts(
+                data=data,
+                times=times,
+                amp_threshold=amp_threshold,
+                return_win_samp=return_win_samp,
+                return_buffer=return_buffer)
+
+
+            if len(artifacts) > 0:
+
+                plot_path = save_artifact_plot(
+
+                    data=data,
+
+                    times=times,
+
+                    artifacts_list=artifacts,
+
+                    filename=filename,
+
+                    sweep_number=sweep_number,
+
+                    plot_folder=plot_folder
+                )
+
+
+            for artifact_number, artifact in enumerate(
+                artifacts,
+                start=1 ):
+
+                artifact_row = {"file":filename,
+                                "file_path":abf_path,
+                                "sweep":sweep_number,
+                                "artifact_number":artifact_number,**artifact,}
+                all_artifacts.append(artifact_row)
+
+                start_idx = artifact["start_sample"]
+
+                end_idx = artifact["return_sample"]
+
+    except Exception as e:
+        print(f"error processing {filename}: {e}")
+
+
+
+summary_df = pd.DataFrame(all_artifacts)
+
+
+summary_path = os.path.join(output_folder,"artifact_summary.csv")
+
+summary_df.to_csv(summary_path,index=False)
+
+
+
