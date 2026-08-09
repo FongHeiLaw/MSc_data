@@ -1,0 +1,159 @@
+import os
+import glob
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import csv
+
+import github_code as ephys
+import metadata_lookup
+
+
+# compare corrected event amplitude and baseline etc #
+# ------------------------------------------------------------------
+my_folder = "C:/Users/silic/Desktop/master_project_updated_pipeline_backup/events_corrected_vs_original_1255pm_9thAug"
+os.makedirs(my_folder, exist_ok=True)
+
+abf_folder = "C:/Users/silic/Desktop/master_project_updated_pipeline_backup/abf_folders_all_three_categories/"
+corrected_folder = "C:/Users/silic/Desktop/corrected_event_tables_1245pm_9thAug"
+
+folder_thermal = "C:/Users/silic/Desktop/master_project_updated_pipeline_backup/events_thermal_stimulator"
+files_thermal = os.listdir(folder_thermal)
+folder_mechanical = "C:/Users/silic/Desktop/master_project_updated_pipeline_backup/events_mechanical_stimulator"
+files_mechanical = os.listdir(folder_mechanical)
+folder_4stim = "C:/Users/silic/Desktop/master_project_updated_pipeline_backup/events_4stim"
+files_4stim = os.listdir(folder_4stim)
+
+cleaned_thermal = list(map(lambda s: s.rsplit("_events.csv", 1)[0], files_thermal))
+cleaned_mechanical = list(map(lambda s: s.rsplit("_events.csv", 1)[0], files_mechanical))
+cleaned_4stim = list(map(lambda s: s.rsplit("_events.csv", 1)[0], files_4stim))
+
+matadata_file_path = r"C:/Users/silic/Desktop/metadata_with_base_name_23_to_26_updated.csv"
+metadata_df = metadata_lookup.load_metadata(matadata_file_path)
+
+files = os.listdir(abf_folder)
+
+# ------------------------------------------------------------------
+corrected_table_paths = glob.glob(os.path.join(corrected_folder, "corrected_*_events.csv"))
+print(f"found {len(corrected_table_paths)} corrected table(s)")
+print(corrected_table_paths[:5])  # peek at first few paths
+
+for table_path in corrected_table_paths:
+    file_prefix = os.path.basename(table_path).replace("corrected_", "").replace("_events.csv", "")
+
+    with open(table_path, mode='r') as f:
+        reader = csv.DictReader(f)
+        rows = [r for r in reader]
+
+    rows_to_plot = [r for r in rows if r.get("corrected_baseline_time") != ""]
+    if not rows_to_plot:
+        continue
+
+    file_selected = [f for f in files if os.path.splitext(f)[0] == file_prefix]
+    if not file_selected:
+        print(f"no abf found for {file_prefix}, skipping")
+        continue
+    file_selected_in_string = file_selected[0]
+    filepath = abf_folder + file_selected_in_string
+
+    if file_prefix in cleaned_thermal:
+        offset = 0.021
+    elif file_prefix in cleaned_mechanical:
+        offset = 0.028
+    elif file_prefix in cleaned_4stim:
+        offset = 0.021
+    else:
+        print(f"{file_prefix} not in any category, skipping")
+        continue
+
+    settings = metadata_lookup.get_settings_for_file(filepath, metadata_df)
+
+    importer = ephys.importdata.ImportData(filepath, ext=".ABF")
+    data = importer.load_data()
+    primary_data = data.get_primary_data()
+    time_array = data.time_array - offset
+    ts = float(data.ts)
+    n_samples = primary_data.shape[1]
+
+    window_start = 30  # ms
+    window_stop = 60
+    before_n = int(round((window_start / 1000) / ts))
+    after_n = int(round((window_stop / 1000) / ts))
+
+
+
+
+    for row in rows_to_plot:
+        record = int(row["Record"])
+        event_id_label = row["event_id"]
+        event_index_number = int(row["event_index"])
+        amp = float(row["Amplitude..pA."])
+        corrected_amplitude = float(row["corrected_amplitude_pA"])
+
+        event_time = float(row["Event.Time..s."])
+                                        
+        peak_current = float(row["Peak..pA."])
+
+        # two baselines
+        original_baseline_time = float(row["baseline_time"])
+        original_baseline_current = float(row["Baseline..pA."])
+        corrected_baseline_time = float(row["corrected_baseline_time"])
+        corrected_baseline_current = float(row["corrected_baseline_pA"])
+
+        data_array = primary_data[record, :]
+        time_ = time_array[record, :]
+
+        lower_bound = max(0, event_index_number - before_n)
+        upper_bound = min(n_samples, event_index_number + after_n)
+
+        t = time_[lower_bound:upper_bound]
+        trace = data_array[lower_bound:upper_bound]
+        
+
+        print(event_id_label, event_time, peak_current, amp, original_baseline_time, original_baseline_current, corrected_baseline_time, corrected_baseline_current)
+ 
+        window_start = 30  # in ms
+        window_stop = 60
+        ts = float(data.ts)  # ts is the sampling interval, the time between 2 samples of my data
+        n_samples = primary_data.shape[1]  # my trace is stored with a structure like this primary_data[record_index, sample_index], so by shape[1] it means get the recording index
+        before_n = int(round((window_start / 1000) / ts))  # convert 15ms into s, then, find out the number of samples that I need to grab (before my peak), as the data contained at the start of my event, I divided this time by the sampling interval, i know how many samples that my interval spans over window
+        after_n = int(round((window_stop / 1000) / ts))
+        # then, i need to make sure
+        lower_bound_window_sample_index = max(0, event_index_number - before_n)  # if my event index number is lower than the number of sample that I select for window start,i.e event_index_number - before_n becomes negative, I take 0 instead (take the maximum out of two input values)
+        upper_bound_window_sample_index = min(n_samples, event_index_number + after_n)  # same logic as above
+        t = time_array[record, lower_bound_window_sample_index:upper_bound_window_sample_index]  # this means time_
+        trace = primary_data[record, lower_bound_window_sample_index:upper_bound_window_sample_index]  # this means time_array, current values
+ 
+        # ---------- picture 1: original baseline ----------
+        fig, ax = plt.subplots(figsize=(4, 3))
+        ax.plot(t, trace, color="black", linewidth=0.8)
+        ax.axvline(time_array[record, event_index_number], color="red", linestyle="--", linewidth=0.8, label="detected peak")
+        ax.scatter(original_baseline_time, original_baseline_current, color="blue", s=10, label="baseline", zorder=2)
+        ax.scatter(event_time, peak_current, color="red", s=10, label="peak", zorder=2)
+        title = f"{event_id_label} {settings[2]} mV amp = {round(amp)} pA (original)"
+        ax.set_title(title, fontsize=8)
+        ax.set_xlabel("Time (s)")
+        ax.set_ylabel("Current (pA)")
+        ax.legend(fontsize=6, loc="upper right", frameon=False)
+        fig.tight_layout()
+        fig.savefig(os.path.join(my_folder, f"{event_id_label}_original.png"), dpi=100)
+        plt.show()
+        plt.close(fig)
+ 
+        # ---------- picture 2: corrected baseline ----------
+        fig, ax = plt.subplots(figsize=(4, 3))
+        ax.plot(t, trace, color="black", linewidth=0.8)
+        ax.axvline(time_array[record, event_index_number], color="red", linestyle="--", linewidth=0.8, label="detected peak")
+        ax.scatter(corrected_baseline_time, corrected_baseline_current, color="green", s=10, label="corrected baseline", zorder=2)
+        ax.scatter(event_time, peak_current, color="red", s=10, label="peak", zorder=2)
+        title = f"{event_id_label} {settings[2]} mV amp = {round(corrected_amplitude)} pA (corrected)"
+        ax.set_title(title, fontsize=8)
+        ax.set_xlabel("Time (s)")
+        ax.set_ylabel("Current (pA)")
+        ax.legend(fontsize=6, loc="upper right", frameon=False)
+        fig.tight_layout()
+        fig.savefig(os.path.join(my_folder, f"{event_id_label}_corrected.png"), dpi=100)
+        plt.show()
+        plt.close(fig)
+ 
+        print(f"saved plots for {event_id_label}")
