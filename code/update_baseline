@@ -1,0 +1,222 @@
+import os
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+import github_code as ephys
+import csv
+
+import random
+
+
+
+
+# code to update all baseline if it contains artefact
+
+
+# 137 artefact only, maybe use artefact summary.csv
+# for every row, get the start and stop sample number
+# get the file prefix
+# (use file prefix to determine offset)
+# (update offset variable)
+# import that abf file
+# get the event time based on my sample number (start and stop), store it
+
+# then go to my event table (based on file prefix)
+# find baseline time column, see if any row baseline time period lands between my target time, if yes, get that target time, and run all the code I had previously
+
+
+## try to check the category of my abf file
+
+folder_thermal = "C:/Users/silic/Desktop/master_project_updated_pipeline_backup/events_thermal_stimulator"
+files_thermal = os.listdir(folder_thermal)
+#print(files_thermal)
+
+folder_mechanical = "C:/Users/silic/Desktop/master_project_updated_pipeline_backup/events_mechanical_stimulator"
+files_mechanical = os.listdir(folder_mechanical)
+#print(files_mechanical)
+
+folder_4stim = "C:/Users/silic/Desktop/master_project_updated_pipeline_backup/events_4stim"
+files_4stim = os.listdir(folder_4stim)
+#print(files_4stim)
+
+cleaned_thermal = list(map(lambda s: s.rsplit("_events.csv", 1)[0], files_thermal))
+cleaned_mechanical = list(map(lambda s: s.rsplit("_events.csv", 1)[0], files_mechanical))
+cleaned_4stim = list(map(lambda s: s.rsplit("_events.csv", 1)[0], files_4stim))
+
+
+filename = "C:/Users/silic/Desktop/master_project_updated_pipeline_backup/abf_folders_all_three_categories/artifact_detection_results_new/artifact_summary.csv"
+
+
+with open(filename, mode='r') as file: 
+    csv_reader = csv.DictReader(file)  # Create DictReader
+
+    data_list = []  # List to store dictionaries
+    for row in csv_reader:
+        data_list.append(row)
+
+#print(len(data_list))
+
+
+    
+noise_records = []
+count = 0
+for i in range(0, len(data_list)):
+    offset = 0    
+    row_dict = data_list[i]
+    file = row_dict["file"]
+    start_samp = int(row_dict["start_sample"])
+    return_samp = int(row_dict["return_sample"])
+    record = int(row_dict["sweep"])
+
+    print(file)
+
+    file_no_ext = str(os.path.splitext(file)[0])
+
+    print(file_no_ext)
+
+    # check what category of folder that my file is belong to
+    if file_no_ext in cleaned_mechanical:
+        offset = 0.028
+        print("it is mech")
+        event_folder = "C:/Users/silic/Desktop/master_project_updated_pipeline_backup/events_mechanical_stimulator/"
+        #print("mech")
+    elif file_no_ext in cleaned_4stim:
+        offset = 0.021
+        event_folder = "C:/Users/silic/Desktop/master_project_updated_pipeline_backup/events_4stim/"
+        #print("4stim")
+    
+    elif file_no_ext in cleaned_thermal:
+        offset = 0.021
+        event_folder = "C:/Users/silic/Desktop/master_project_updated_pipeline_backup/events_thermal_stimulator/"
+        #print("thermal")
+
+    else:
+        print("it is running else") # if offset is zero, meaning that that abf detected events does not have event table???
+        event_folder = ""
+        count = count +1
+        print(count)
+        continue
+
+    #print(start_samp)
+    #print(return_samp)
+
+   
+    #file_name_no_extension = file.rsplit(".", 1)[0] # remove everything after the last dot (1), and take the first part (the name, not the thing removed, so [0])
+    #print(cleaned_mechanical)
+    #print("hi")
+
+
+    #print(file_name_no_extension)
+    #print(cleaned_thermal)
+
+
+    print("offset: ",offset) 
+
+    # read abf file
+    file_abf = "C:/Users/silic/Desktop/master_project_updated_pipeline_backup/abf_folders_all_three_categories/" + file
+    importer = ephys.importdata.ImportData(file_abf, ext = ".ABF")
+    data = importer.load_data()
+    primary_data = data.get_primary_data()
+    time_array = data.time_array
+    time_array = time_array - offset # offset is 0.028 for mechanical stimulator, 0.021 for mechanical stimulator and 4stim, defined earlier in the script
+
+    data_array = primary_data[record, :]
+    time_ = time_array[record, :]
+
+
+    # sampling rate in Hz
+    fs = 1.0 / float(data.ts)
+
+    # select the time (in samples) and the raw value, from my defined index
+    time_noise = time_[start_samp:return_samp+1]
+    
+    #print(time_noise)
+
+    event_table_path = event_folder + file_no_ext + "_events.csv"
+    #print(event_table_path)
+
+    with open(event_table_path, mode='r') as event:
+        csv_reader = csv.DictReader(event)  # Create DictReader
+        event_list = []  # List to store dictionaries
+        for row in csv_reader:
+            event_list.append(row)
+
+    print(len(event_list))
+
+    # define noise period
+    noise_start = time_noise[0]
+    noise_end = time_noise[-1]
+    
+    # find target time
+    # for every row, get the baseline_time
+
+    matched_rows = []
+    for row in event_list:
+        # find target time — check if baseline_time falls within the noise window
+        baseline_time = float(row["baseline_time"])
+        if noise_start <= baseline_time <= noise_end:
+            print("i found the row that matches:", row)
+            matched_rows.append(row)
+            print(row)
+
+    # store into a dict
+    noise_records.append({
+        "file": file,
+        "sweep": record,
+        "start_sample": start_samp,
+        "return_sample": return_samp,
+        "time_noise": list(time_noise),   # convert numpy array → list
+        "matched_baseline_rows": matched_rows 
+    })
+
+    for row in matched_rows:
+        baseline_time = float(row["baseline_time"])
+        # find which sample index in time_ this baseline_time corresponds to
+        #sample_idx = np.argmin(np.abs(time_ - baseline_time))
+
+        peak_pA = float(row["Peak..pA."])
+        
+
+        row["corrected_baseline_index"] = return_samp + 10
+        row["corrected_baseline_time"] = time_[return_samp + 10]
+        row["corrected_baseline_pA"] = data_array[return_samp + 10]
+        row["corrected_amplitude_pA"] = peak_pA - row["corrected_baseline_pA"]
+
+        print("updated row:", row)
+
+    if matched_rows:
+        output_csv = f"C:/Users/silic/Desktop/corrected_event_tables_1245pm_9thAug/corrected_{file_no_ext}_events.csv"
+
+        # re-build dictionary name/new added key, so that it can be stored
+
+        fieldnames = set()
+        for row in event_list:
+            fieldnames.update(row.keys())
+        fieldnames = list(fieldnames)
+
+        # Write back to CSV
+        with open(output_csv, mode='w', newline='') as file:
+            writer = csv.DictWriter(file, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(event_list)
+
+output_csv = "C:/Users/silic/Desktop/corrected_event_tables_1245pm_9thAug/noise_windows.csv"
+
+# build fieldnames from all rows
+fieldnames = set()
+for row in noise_records:
+    fieldnames.update(row.keys())
+fieldnames = list(fieldnames)
+
+with open(output_csv, mode='w', newline='') as f:
+    writer = csv.DictWriter(f, fieldnames=fieldnames)
+    writer.writeheader()
+    writer.writerows(noise_records)
+
+
+    
+
+
+    
