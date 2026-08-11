@@ -1,0 +1,150 @@
+# log that I printed in console when detecting events
+mech_sum_log <- read.csv("C:/Users/silic/Desktop/master_project_updated_pipeline_backup/event_counts_summary_mechanical.csv")
+four_stim_sum_log <- read.csv("C:/Users/silic/Desktop/master_project_updated_pipeline_backup/event_counts_summary_4stim.csv")
+thermal_sum_log <- read.csv("C:/Users/silic/Desktop/master_project_updated_pipeline_backup/event_counts_summary_thermal.csv")
+
+log_all <- rbind(mech_sum_log, thermal_sum_log, four_stim_sum_log)
+
+log_all <- log_all %>%
+  mutate(record_date = substr(file_prefix, 1, 10))
+unique(log_all$record_date)
+
+log_all$n_events_saved <- as.numeric(log_all$n_events_saved)
+summary(log_all$n_events_saved)
+log_all$mV <- as.factor(log_all$mV)
+summary(log_all$mV)
+
+### change 10mV back to 0mV
+log_all$mV [log_all$mV %in% "10"] <- 0
+summary(log_all$mV)
+
+ipsc <- log_all |> filter(mV == 0)
+summary(ipsc)
+
+epsc <- log_all |> filter(mV == -70)
+summary(epsc)
+
+
+
+#####################
+# exclude noise
+n  <- read.csv("C:/Users/silic/Desktop/master_project_updated_pipeline_backup/noise_labeling/events_to_label/other_noise/final_excluded_noise_0550am_22July2026.csv")
+final_table <- event_no_ambsure_no_bl |> filter(!event_id %in% n$event_id)
+# 505376
+
+###
+# 2024_06_25_0020 completely wrong
+# 2026_01_20_0029 sweep 4
+
+# list of recording that I plotted the full traces and manually excluded, maybe too many EPSC durign IPSC, maybe unstable baseline etc
+list_rec <- c("2026_01_14_0023", "2026_01_14_0025", "2026_01_14_0026", "2026_01_14_0027", "2026_01_14_0028", "2026_01_14_0029", "2026_06_04_0081", "2024_06_06_0008", "2025_01_16_0004", "2026_01_14_0029", "2026_06_04_0064", "2026_04_28_0054", "2026_04_28_0055", "2026_04_28_0056", "2026_04_28_0057", "2024_05_23_0003", "2024_05_23_0018", "2024_06_06_0036","2024_06_25_0018", "2024_06_25_0020", "2026_01_13_0021", "2026_01_13_0030", "2025_01_16_0004")
+#filter event table to exclude any events that has the above recoridng numebr
+final_table_exc_rec <- final_table |> filter(!file_prefix %in% list_rec)
+
+######################################### create new variabe cakked offset and catagory of recording ################
+
+# i have a list of detecetd events stored/sorted in folders according to their category/protocol
+# list file in that category, get the list of file name of detectd .csv, remove extension
+
+# chec category, append new colu,mn
+therm_folder <- list.files("C:/Users/silic/Desktop/master_project_updated_pipeline_backup/events_thermal_stimulator")
+mech_folder <- list.files("C:/Users/silic/Desktop/master_project_updated_pipeline_backup/events_mechanical_stimulator")
+four_stim_folder <- list.files("C:/Users/silic/Desktop/master_project_updated_pipeline_backup/events_4stim")
+
+therm_folder_no_ext <- tools::file_path_sans_ext(therm_folder)
+therm_folder_clean <- sub("_events$", "", therm_folder_no_ext)
+
+mech_folder_no_ext <- tools::file_path_sans_ext(mech_folder)
+mech_folder_clean <- sub("_events$", "", mech_folder_no_ext)
+
+four_stim_folder_no_ext <- tools::file_path_sans_ext(four_stim_folder)
+four_stim_folder_clean <- sub("_events$", "", four_stim_folder_no_ext)
+
+
+# compare my event table (without noise) with the content inside each of my category folder, if it is inside, update the category varialbe and offset according to inside which
+# create new column named category and offset, category is the category of abf files that it is from (3 protocols), offset is raw current trace offset as they dont start as zero
+final_table_exc_rec$category[final_table_exc_rec$file_prefix %in% therm_folder_clean ] <- "thermal"
+final_table_exc_rec$category[final_table_exc_rec$file_prefix %in% mech_folder_clean] <- "mechanical"
+final_table_exc_rec$category[final_table_exc_rec$file_prefix %in% four_stim_folder_clean] <- "4stim"
+
+final_table_exc_rec$offset[final_table_exc_rec$file_prefix %in% therm_folder_clean ] <- 0.021
+final_table_exc_rec$offset[final_table_exc_rec$file_prefix %in% mech_folder_clean] <- 0.028
+final_table_exc_rec$offset[final_table_exc_rec$file_prefix %in% four_stim_folder_clean] <- 0.021
+
+
+
+############### data wranggling to set stimulus time, period
+library(dplyr)
+
+# import metadata, 44 variables, updated df including broad_type and narrow_type column names, replaced +10mV to 0mV
+meta <- read.csv("C:/Users/silic/Desktop/master_project_updated_pipeline_backup/metadata_with_base_name_23_to_26_updated.csv")
+
+meta <- meta %>%
+  mutate(file_name_clean = sub("\\.abf$", "", file_name, ignore.case = TRUE))
+
+meta$file_name_clean
+
+final_table_exc_rec_with_mV <- final_table_exc_rec %>%
+  left_join(meta %>% select(file_name_clean, mV), by = c("file_prefix" = "file_name_clean"))
+
+final_table_exc_rec_with_all_info <- final_table_exc_rec %>%
+  left_join(meta %>% select(file_name_clean, broad_type, narrow_type, 
+                            Cell, date, year, month, response_notebook, stim_onset_ch2,
+                            stim_onset_ch3, stim_offset_ch2, stim_offset_ch3,total_length_sec,
+                            sweep_length_sec, sweep_count, temp, force, type, include, 
+                            genotype, comment, channel_count, channel_units, estim, recording_number,
+                            channel_mes, quality),
+            by = c("file_prefix" = "file_name_clean")
+            )
+
+# as the event time column is the absolute event peak time to the start of the recording, not that sweep, we need to extract the relative event peak time in seconds, compared to the start of the sweep
+# for 4stm there is no gap between sweep
+# I used excel and save in a csv instead, except the post stim period of 4srtim category file is empty
+# becuas e4stin have three types of categories, mech 4stim 1s, hot and heat 2s
+
+# import table
+category_details <- read.csv("C:/Users/silic/Desktop/stim_timetable.csv")
+
+# recording category (4stim, thermal, mech) is stored in variable/column named caegory 
+final_table_stim <- final_table_exc_rec_with_all_info %>%
+  left_join(category_details %>% select(Record, category, 
+                                        abs_sweep_start_time, stim_rel_time,
+                                        stim_abs_time,baseline_period_start_time,
+                                        baseline_period,stim_period_duration,
+                                        stim_period_end_time), 
+            by = c("Record", "category"))
+
+final_table_stim$stim_period_duration[final_table_stim$broad_type %in% "hot"] <- 2       # 272896 NA after assigning 
+final_table_stim$stim_period_duration[final_table_stim$broad_type %in% "cold"] <- 2        # 169564 NA after assigning to cold
+final_table_stim$stim_period_duration[final_table_stim$broad_type %in% "mechanical"] <- 1     # 0 NA
+
+summary_table <- final_table_stim %>%          # this table provodes summary of all events detail, including recording_number column
+  summarise(across(everything(), n_distinct)) # or I can also use this and count num of element : unique(final_table_stim$recording_number) 
+# reminder, i have 4 broad type, 8 narrow type, 3 category of protocol (abf files catgory), 2 different offset number
+
+
+# create record date column so that I can count how many day (animal was used)
+final_table_stim_with_date <- final_table_stim %>%
+  mutate(record_date = substr(file_prefix, 1, 10))
+
+###
+cell_summary <- final_table_stim_with_date %>%             #this tablecontains two column, first column is day of expeimtn, second column is the number of cells recprded in that day
+  group_by(record_date) %>%
+  summarise(n_unique_cells = n_distinct(Cell))
+summary(cell_summary$n_unique_cells)                     # count distribution of number of cells recorded per animal (per day_
+
+# after counting numebr of cell recored each day, count numebr ofe cell recorded/events inclyded in the whole final no noise dataset
+cell_lookup <- final_table_stim_with_date %>%
+  distinct(record_date, Cell)%>%
+  arrange(record_date, Cell) %>%
+  mutate(global_cell_number = row_number())
+# a total of 51 cells were included in analysis to test the main hypothesis
+
+# join back cell number global, to main df
+final_table_stim_with_date_with_cell <- final_table_stim_with_date %>%
+  left_join(cell_lookup, by = c("record_date", "Cell"))
+
+# this code should have been done earlier, but keep it here to keep df name working
+# update stim period end time, stijmulus time (absolute seconds from t=0) + stim period (1 or 2s)
+final_table_stim_with_date_with_cell$stim_period_end_time <-final_table_stim_with_date_with_cell$stim_abs_time + final_table_stim_with_date_with_cell$stim_period_duration
+
