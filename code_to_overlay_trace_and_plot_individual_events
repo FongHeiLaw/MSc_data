@@ -1,0 +1,325 @@
+
+from scipy.signal import savgol_filter
+import os
+import glob
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import csv
+
+import github_code as ephys
+import metadata_lookup
+
+# code that I repeatedly used for plotting graphs, e.g noise_t1-t9 graphs individual jpg was plotted using this
+# events that I used ambigous classifer (re-trained, the new one), newly predicted events that did not overlap with old prediction and i plotted those to visually inspect, around 238 or sth events
+# overlaied noise type trace (plotted outside the for loop instead of inside)
+# code to plot the events with amplitude greater than 800 for visual inspectin (then excluded all), 25 events
+# to plot peak in contamination region events, toplot peak in baselin eevent
+# to plot corrected baseline vs previous baseline plots
+# code to plot events of my fitted sigmoid curve (5 stacled tgt), detect accuracy?? idk if it is this code
+# code is untidied with noise_table_path keep changing (later stage of analysis of 12 th AUgust)
+
+# the file name of csv might not be correct/ impolging the comntent
+# for example: noise_labeling\events_to_label\other_noise\noise_t2\all_events_other_noise_high_conf_50_percent_v6.csv
+# these were the noise event tables that in previously old random forest events, not really high conficent etc
+# to speed up my analysis yesterday, I someitmes used excel and put sevral types of noise tgt into the same table with old file name
+# but the code defo works and depends on what you want to plot, the whole csv will be plotted one by one/ overlay, even if the row is from different abf files with different offset etc
+
+#### important
+# but each csv table of events (1 row per evemnt that I interested in plotting), might have diff version of column names 
+# so need to adjust it accordingly
+# also old version added red dots to peak, new version added vertical baseline, clearer
+
+# event 1178, 2026_06_04_0083
+# "C:\Users\silic\Desktop\master_project_updated_pipeline_backup\abf_folders_all_three_categories\2026_06_04_0083.abf"
+
+# look up metadata to get the mV number for plot (if needed)
+matadata_file_path = r"C:/Users/silic/Desktop/metadata_with_base_name_23_to_26_updated.csv"
+metadata_df = metadata_lookup.load_metadata(matadata_file_path)
+abf_folder = "C:/Users/silic/Desktop/master_project_updated_pipeline_backup/abf_folders_all_three_categories/"
+
+#abf_path = "C:/Users/silic/Desktop/master_project_updated_pipeline_backup/abf_folders_all_three_categories/2026_06_04_0083.abf"
+#event_path = "C:/Users/silic/Desktop/events_with_noise_by_catagory/events_with_noise_4stim/2026_06_04_0083.csv"
+
+#noise_table_path = "C:/Users/silic/Desktop/noise_event_to_fit_curve.csv"
+#noise_table_path = "C:/Users/silic/Desktop/master_project_updated_pipeline_backup/noise_labeling/events_to_label/other_noise/final_excluded_noise_0550am_22July2026_t1.csv"
+#noise_table_path = "C:/Users/silic/Desktop/new_noise_table_t1_noise.csv"
+
+
+## plot manually excluded event, save individual plot if okay
+
+#"C:\Users\silic\Desktop\master_project_updated_pipeline_backup\results\high_amplitude_trial\manually_excluded_events.csv"
+#noise_table_path = "C:/Users/silic/Desktop/master_project_updated_pipeline_backup/results/high_amplitude_trial/manually_excluded_events.csv"
+
+
+# now try plot all high amplitude event first, with my old code
+
+#noise_table_path = "C:/Users/silic/Desktop/master_project_updated_pipeline_backup/all_events_no_noise.csv"
+#noise_table_path = "C:/Users/silic/Desktop/events_no_noise_amp80.csv"
+
+#noise_table_path = "C:/Users/silic/Desktop/events_all_needed_peak_in_noise.csv"
+
+# plotted newly detcetd sharp peak that is not in noise table (not previously predicted by randomforest)
+#noise_table_path = "C:/Users/silic/Desktop/events_all_needed_bl_notin_noise.csv"
+
+# "C:\Users\silic\Desktop\peak_extract_no.csv"
+
+#noise_table_path = "C:/Users/silic/Desktop/events_bl_with_corrected_value.csv"
+# "C:/Users/silic/Desktop/events_bl_with_corrected_value.csv"
+
+# plot overlay of type 2 noise now
+#"C:\Users\silic\Desktop\master_project_updated_pipeline_backup\noise_labeling\events_to_label\other_noise\noise_t2\all_events_other_noise_high_conf_50_percent_v6.csv"
+
+#noise_table_path = "C:/Users/silic/Desktop/ambiguous.csv"
+
+# visually inspect 238 events, should be quick
+
+noise_table_path = "C:/Users/silic/Desktop/false.csv"
+
+
+# get file content of _events to check what my event table belongs to
+folder_thermal = "C:/Users/silic/Desktop/master_project_updated_pipeline_backup/events_thermal_stimulator"
+files_thermal = os.listdir(folder_thermal)
+folder_mechanical = "C:/Users/silic/Desktop/master_project_updated_pipeline_backup/events_mechanical_stimulator"
+files_mechanical = os.listdir(folder_mechanical)
+folder_4stim = "C:/Users/silic/Desktop/master_project_updated_pipeline_backup/events_4stim"
+files_4stim = os.listdir(folder_4stim)
+
+cleaned_thermal = list(map(lambda s: s.rsplit("_events.csv", 1)[0], files_thermal))
+cleaned_mechanical = list(map(lambda s: s.rsplit("_events.csv", 1)[0], files_mechanical))
+cleaned_4stim = list(map(lambda s: s.rsplit("_events.csv", 1)[0], files_4stim))
+
+
+
+
+with open(noise_table_path, mode='r') as file:
+    csv_reader = csv.DictReader(file)  # Create DictReader
+
+    data_list = []  # List to store dictionaries
+    for row in csv_reader:
+        data_list.append(row)
+    print(len(data_list))
+
+
+print(noise_table_path)
+
+
+
+# filter aplitude first, select only if those row has big ampltiide, store as a new csv/ data frame, then we loop and import abf and plot, save memory of laptop
+
+#new_dictionary = []
+#for event in data_list:
+#    amp = float(event["Amplitude (pA)"])
+#    if amp >= 800:
+#        new_dictionary.append(event)
+
+
+# store the new dict into data list jst save time no need to cirrect every variable downstream (old script)
+
+#print(len(new_dictionary))
+# Event Number	Record	Event Time (s)	Baseline (pA)	Peak (pA)	Amplitude (pA)	Rise Time (ms)	Half-Width (ms)	Decay Time (ms)	Decay Fit b0	Decay Fit b1	Decay Fit Tau (ms)	AUC (pA ms)	rise_max_time	baseline_time
+
+
+
+
+#
+ #[1] "Event.Number"       "Record"             "Event.Time..s."     "Baseline..pA."     
+ #[5] "Peak..pA."          "Amplitude..pA."     "Rise.Time..ms."     "Half.Width..ms."   
+ #[9] "Decay.Time..ms."    "Decay.Fit.b0"       "Decay.Fit.b1"       "Decay.Fit.Tau..ms."
+#[#13] "AUC..pA.ms."        "rise_max_time"      "baseline_time"      "event_index"       
+#[#17] "file_prefix"        "event_id"           "noise"              "event_entry_number"
+
+
+stored_trace = []
+all_event_dfs = []
+for event in data_list:
+    #event_time = float(event["Event Time (s)"])
+    #file_prefix = event["file_prefix"]
+    #record = int(event["Record"])
+    #event_index = int(event["event_index"])
+    #baseline = float(event["baseline_time"])
+    #baseline_current = float(event["Baseline (pA)"])
+    #peak_current = float(event["Peak (pA)"])
+    #rise_time = float(event["Rise Time (ms)"])
+    #half_width = float(event["Half-Width (ms)"])
+    #decay_time = float(event["Decay Time (ms)"])
+    #decay_fit = float(event["Decay Fit b0"])
+    #decay_fit_tau = float(event["Decay Fit Tau (ms)"])
+    #rise_max_time = float(event["rise_max_time"])
+    #event_pic = event["event_id"]
+
+    event_time = float(event["Event.Time..s."])
+    amp = float(event["Amplitude..pA."])
+    file_prefix = event["file_prefix"]
+    record = int(event["Record"])
+    event_index = int(event["event_index"])
+    baseline_time = float(event["baseline_time"])
+    baseline_current = float(event["Baseline..pA."])
+    peak_current = float(event["Peak..pA."])
+    #rise_time = float(event["Rise.Time..ms."])
+    #half_width = float(event["Half.Width..ms."])
+   # decay_time = float(event["Decay.Time..ms."])
+    #decay_fit_b0 = float(event["Decay.Fit.b0"])
+    #decay_fit_b1 = float(event["Decay.Fit.b1"])
+    #decay_fit_tau = float(event["Decay.Fit.Tau..ms."])
+    #rise_max_time = float(event["rise_max_time"])
+    event_pic = event["event_id"]
+    #corrected_baseline_time = float(event["baseline_time"])
+    #corrected_baseline_current = float(event["baseline_current"])
+    #corrected_amplitude_pA = float(event["corrected_amplitude_pA"])
+    #corrected_baseline_index = int(event["corrected_baseline_index"])
+
+
+
+    # check what folder category to determine offset number
+    if file_prefix in cleaned_thermal:
+        offset = 0.021
+        print("thermal")
+    elif file_prefix in cleaned_mechanical:
+        offset = 0.028
+        print("mech")
+    elif file_prefix in cleaned_4stim:
+        offset = 0.021
+        print("4stim")
+    else:
+        print(f"{file_prefix} not in any category, skipping")
+  
+    # construct full file path to import abf
+    filepath = abf_folder + file_prefix + ".abf"
+    print(filepath)
+
+    # load metadata so that I can plot the mV number as plot title
+    matadata_file_path = r"C:/Users/silic/Desktop/metadata_with_base_name_23_to_26_updated.csv"
+    metadata_df = metadata_lookup.load_metadata(matadata_file_path)
+
+    # fetch the mV number of this recording, store as settings[2]
+    settings = metadata_lookup.get_settings_for_file(filepath, metadata_df) # this function output a list that has three elements, threshold, direction (-1/1), and mV (0/-70)
+    #threshold_lower, direction, mv = settings # unpack
+    #print(settings[2]) # this print the mV into console
+
+    mV = settings[2]
+
+    #settings = metadata_lookup.get_settings_for_file(filepath, metadata_df)
+    importer = ephys.importdata.ImportData(filepath, ext=".ABF")
+    data = importer.load_data()
+    primary_data = data.get_primary_data()
+    time_array = data.time_array - offset
+    ts = float(data.ts)
+    n_samples = primary_data.shape[1]
+
+    window_start = 30  # ms
+    window_stop = 45
+    before_n = int(round((window_start / 1000) / ts))
+    after_n = int(round((window_stop / 1000) / ts))
+
+    # then, i need to make sure index makes sense
+    lower_bound_window_sample_index = max(0, event_index - before_n)  # if my event index number is lower than the number of sample that I select for window start,i.e event_index_number - before_n becomes negative, I take 0 instead (take the maximum out of two input values)
+    upper_bound_window_sample_index = min(n_samples, event_index + after_n)  # same logic as above
+    t = time_array[record, lower_bound_window_sample_index:upper_bound_window_sample_index]  # this means time_
+    trace = primary_data[record, lower_bound_window_sample_index:upper_bound_window_sample_index]  # this means time_array, current values
+
+    # now t and trace are the time value and current value that I wnat to later fit curve to find out the maths, how do i store this two array/list?
+    #print(t)
+    #print(trace)
+
+    peak_pos_in_window = event_index - lower_bound_window_sample_index     
+    t_rel = t - t[peak_pos_in_window]
+    trace_norm = trace - baseline_current
+
+
+
+    #     baseline = float(event["baseline_time"])
+    # baseline_current = float(event["Baseline (pA)"])
+
+ 
+    #fig, ax = plt.subplots(figsize=(8, 5))
+    #ax.plot(t, trace,color="black",  alpha=0.4, linewidth=0.7)
+    #ax.scatter(t[peak_pos_in_window], trace[peak_pos_in_window]  , label= "peak", color="red", s=10, zorder=5)
+
+    # try add dots to baseline
+    #ax.scatter(baseline_time, baseline_current, color="blue", s=10, label="old_baseline", zorder=2)
+
+    # try add dots to baseline
+    #ax.scatter(corrected_baseline_time, corrected_baseline_current, color="green", s=10, label="new_baseline", zorder=2)
+
+    #ax.set_title(f"inspect{event_pic} {mV}mV amplitude {round(amp)} pA")
+    #ax.legend(fontsize=6, loc="upper right", frameon=False)
+    #outputpath = "C:/Users/silic/Desktop/outputs/re_inspect/false_pos/" + event_pic + "_event.png"
+    #plt.savefig(outputpath, dpi=150)
+
+
+
+
+
+    #plt.show()
+
+
+ 
+    df = pd.DataFrame({"event_time":event_time,
+                       #"amp": amp,
+                       "mV": mV,
+                       "event_pic" : event_pic,
+                       "event_id": event_index,
+                       "time": t,
+                       "current": trace,
+                       "t_relative": t_rel,
+                       "file_prefix":file_prefix,
+                       "Record": record,
+                       "baseline_time":baseline_time,
+                       "baseline_current":baseline_current,
+                       "peak_current" :peak_current,
+                       #"rise_time":rise_time,
+                       #"half_width":half_width,
+                       #"decay_time":decay_time,
+                       #"decay_fit_b1":decay_fit_b1,
+                       #"decay_fit_b0": decay_fit_b0,
+                       #"decay_fit_tau":decay_fit_tau,
+                       #"rise_max_time":rise_max_time,
+                       #"formula": formula,
+                       #"fit_type": fit_type
+                       })
+
+    all_event_dfs.append(df)  # add to the list instead of saving here
+
+    stored_trace.append((t_rel, trace_norm, peak_pos_in_window))
+    
+
+
+combined_df = pd.concat(all_event_dfs, ignore_index=True)
+combined_df.to_csv("false_positive_RF.csv", index=False)
+
+print(f"Saved {len(all_event_dfs)} events ({len(combined_df)} total rows) to false_positive_RF.csv")
+
+
+fig, ax = plt.subplots(figsize=(6, 5))
+
+for t_rel, trace_norm, peak_pos_in_window in stored_trace:
+    #ax.plot(t_rel, trace,color="black",  alpha=0.2, linewidth=0.5)
+    ax.plot(t_rel, trace_norm, color="black", alpha=0.6, linewidth=0.7)
+    #ax.scatter(t_rel[peak_pos_in_window], trace_norm[peak_pos_in_window]  , color="red", alpha = 0.5, s=3, zorder=5)#
+    # try add dots to baseline
+    #ax.scatter(baseline_time, baseline_current, color="blue", s=3, label="baseline", zorder=2, alpha = 0.5)
+
+
+ax.set_xlabel("Time relative to event peak (s)")
+ax.set_ylabel("Current relative to normalized baseline(pA)")
+ax.set_title(f"False Positive({len(stored_trace)} events) by RandomForest)")
+ax.set_xlim(-0.03, 0.045)
+#ax.set_ylim(-20, 20)
+
+
+ax.axvline(0, color="red", linestyle="--", linewidth=1, alpha=0.7, label="event peak")
+ax.axhline(0, color="red", linestyle="--", linewidth=1, alpha=0.7, label="reference baseline")
+
+
+
+    # 
+plt.tight_layout()
+plt.savefig("C:/Users/silic/Desktop/outputs/re_inspect/false_pos/false_pos_87_events_overlaid.png", dpi=150)
+
+
+    #outputpath = "C:/Users/silic/Desktop/outputs/re_inspect/false_pos/" + event_pic + "_event.png"
+    #plt.savefig(outputpath, dpi=150)
+
+#plt.show()
+
