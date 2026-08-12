@@ -229,6 +229,41 @@ with open(output_csv, mode='w', newline='') as f:
 
 ### (i used the exact same code for peak anlysis to see if the detected peak by my new code to detect sample jump, alreayd have overlapped with the detectd peak from randomforest, half of it oevrlap, the newly detected one were to be excluded later
 # load baseline corrected event detailes include corrected amplitude etc
+
+# here you go found the code for peak
+noise_rows <- read.csv("C:/Users/silic/Desktop/peak_with_noise_corrected/noise_windows.csv")
+
+peak <- noise_rows[noise_rows$matched_peak_rows != "[]",]
+
+
+peak_extract <- peak %>%
+  mutate(
+    Event_Time = str_extract(peak$matched_peak_rows, "(?<='Event.Number': ')[^']+"),
+    Record = str_extract(peak$matched_peak_rows, "(?<='Record': ')[^']+"),
+    event_time = str_extract(peak$matched_peak_rows, "(?<='Event.Time..s.': ')[^']+"),
+    baseline_current = str_extract(peak$matched_peak_rows, "(?<='Baseline..pA.': ')[^']+"),
+    peak_current = str_extract(peak$matched_peak_rows, "(?<='Peak..pA.': ')[^']+"),
+    amplitude = str_extract(peak$matched_peak_rows, "(?<='Amplitude..pA.': ')[^']+"),
+    event_id = str_extract(peak$matched_peak_rows, "(?<='event_id': ')[^']+"),
+    noise = str_extract(peak$matched_peak_rows, "(?<='noise': ')[^']+"),
+    event_index= str_extract(peak$matched_peak_rows, "(?<='event_index': ')[^']+"),
+    file_prefix = str_extract(peak$matched_peak_rows, "(?<='file_prefix': ')[^']+"),
+    baseline_time = str_extract(peak$matched_peak_rows, "(?<='baseline_time': ')[^']+"),
+    event_entry_number = str_extract(peak$matched_peak_rows, "(?<='event_entry_number': ')[^']+")
+  )
+
+peak_extract_no <- peak_extract[peak_extract$noise == "no",]
+peak_extract_yes <- peak_extract[peak_extract$noise == "yes",]
+
+### then use big event tavble and exclude the peak
+#events_all <- read.csv("C:/Users/silic/Desktop/master_project_updated_pipeline_backup/all_events_with_noise.csv")
+# but actally my updated pipeline started from scratch instead of excldue it here, so this code for backupi only....
+#events_all_needed <- events_all %>%
+#  filter(event_entry_number %in% peak_extract_no$event_entry_number)
+#write.csv(events_all_needed,"C:/Users/silic/Desktop/events_all_needed_peak_notin_noise.csv",row.names = FALSE)
+
+############################
+
 noise_rows_bl <- read.csv("C:/Users/silic/Desktop/baseline_with_noise_corrected/noise_windows.csv")
 
 # csv was output by python so has numpy stuff needs unpack, but first select the non empty row, measn the baseline is in contaminsaed region???
@@ -446,3 +481,45 @@ ggsave(
   height = 6,
   dpi = 300
 )
+
+
+###extra r studio code was used
+# previously odl RF has 5 maniualy exclude event, jist wannt check and see if it was detected by peak?? idk idk what i have done, jist here backup!
+#list_manual_ambiguoius = c("155071", "195399", "125089",  "224721", "217732")
+#bl_extract$event_entry_number
+#df_filtered <-peak_extract %>%
+#  filter(event_entry_number %in% list_manual_ambiguoius )
+
+
+
+### full pipeline
+# ambigous for sue was those newly predicted by new traiend RF,m visaullt inspedcted and decided to exclude
+# # Load big event table # 508758
+events_all <- read.csv("C:/Users/silic/Desktop/master_project_updated_pipeline_backup/all_events_with_noise_bk - Copy.csv")
+ambiguous_sure <- list.files("C:/Users/silic/Desktop/outputs/re_inspect/for_sure_ambiguous")
+ambiguous_sure_no_ext <- tools::file_path_sans_ext(ambiguous_sure)
+ambiguous_sure_clean <- sub("_event$", "", ambiguous_sure_no_ext)
+event_no_amb_for_sure <- events_all |> filter(!event_id %in% ambiguous_sure_clean)
+#508732
+
+
+#excude those event disacred during basline correction
+# exclude bl first
+
+event_no_ambsure_no_bl <- event_no_amb_for_sure |> filter(!event_id %in% df_true_amp_time_decrease$event_id)
+#508678
+
+#  i think i then put all the noise into one big csv (csv name not the content, overlap with old RF table, but this csv cpoytain all noise that I want to exclude
+# including the old prediction RF noiset1-t7 i think (but not inc the manually excluded ambihous by previous round), peak in noise is here, 
+# i combined the csv noise table with excel, so it means, all bigh events raw table -> exclude new detectd ambiguous (only sevral verified), exlcuded bl correction (those discartfed during bl correction), then exclude the whole full old RF forest table (but not including the manualy 5 ambi events that were in the tabnle n previous round), and peak in contam regio" thats alll i exlcude for final table!!
+# thenm plus whole recorindg exclude, previous cpode
+
+# big raw table: 508758 -> exclude noisy events -> 505376 -> exclude noisy recording -> 493583 rows for analysis
+
+n  <- read.csv("C:/Users/silic/Desktop/master_project_updated_pipeline_backup/noise_labeling/events_to_label/other_noise/final_excluded_noise_0550am_22July2026.csv")
+
+final_table <- event_no_ambsure_no_bl |> filter(!event_id %in% n$event_id)
+# 505376
+
+write.csv(final_table,"C:/Users/silic/Desktop/final_table.csv",
+          row.names = FALSE)
