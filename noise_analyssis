@@ -1,0 +1,448 @@
+##noise analysis code backup, no time to tidy
+
+### baselin and peal artifct detect
+
+# python code to correct baseline, in both peak and baseline contam regions, tried both thought only used the balsien result, only changed the file name and input output nasme from basleine to peak to analyse both, twice, separtely
+# (desttop file name has two saved , correct_artifact_peak_all.py and arterfact_correct_all.py, the former for peak, the latter for basleine, same code sam elogic
+# this code used artifact_summary.py created previously in order to detecte sample quick jump, code already uploaded to github previously!
+
+import os
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.ensemble import IsolationForest
+from sklearn.preprocessing import RobustScaler
+from sklearn.model_selection import train_test_split
+
+import github_code as ephys
+from filter_minis import filter_minis
+
+import metadata_lookup
+import csv
+
+import random
+
+# code to update all baseline if it contains artefact
+
+
+# 137 artefact only, maybe use artefact summary.csv
+# for every row, get the start and stop sample number
+# get the file prefix
+# (use file prefix to determine offset)
+# (update offset variable)
+# import that abf file
+# get the event time based on my sample number (start and stop), store it
+
+# then go to my event table (based on file prefix)
+# find baseline time column, see if any row baseline time period lands between my target time, if yes, get that target time, and run all the code I had previously
+
+
+## try to check the category of my abf file
+
+folder_thermal = "C:/Users/silic/Desktop/master_project_updated_pipeline_backup/events_thermal_stimulator"
+files_thermal = os.listdir(folder_thermal)
+#print(files_thermal)
+
+folder_mechanical = "C:/Users/silic/Desktop/master_project_updated_pipeline_backup/events_mechanical_stimulator"
+files_mechanical = os.listdir(folder_mechanical)
+#print(files_mechanical)
+
+folder_4stim = "C:/Users/silic/Desktop/master_project_updated_pipeline_backup/events_4stim"
+files_4stim = os.listdir(folder_4stim)
+#print(files_4stim)
+
+cleaned_thermal = list(map(lambda s: s.rsplit("_events.csv", 1)[0], files_thermal))
+cleaned_mechanical = list(map(lambda s: s.rsplit("_events.csv", 1)[0], files_mechanical))
+cleaned_4stim = list(map(lambda s: s.rsplit("_events.csv", 1)[0], files_4stim))
+
+
+filename = "C:/Users/silic/Desktop/master_project_updated_pipeline_backup/abf_folders_all_three_categories/artifact_detection_results_new/artifact_summary.csv"
+
+
+with open(filename, mode='r') as file: 
+    csv_reader = csv.DictReader(file)  
+
+    data_list = []  
+    for row in csv_reader:
+        data_list.append(row)
+
+#print(len(data_list))
+
+
+    
+noise_records = []
+count = 0
+for i in range(0, len(data_list)):
+    offset = 0    
+    row_dict = data_list[i]
+    file = row_dict["file"]
+    start_samp = int(row_dict["start_sample"])
+    return_samp = int(row_dict["return_sample"])
+    record = int(row_dict["sweep"])
+
+    print(file)
+
+    file_no_ext = str(os.path.splitext(file)[0])
+
+    print(file_no_ext)
+
+    # check what category of folder that my file is belong to
+    if file_no_ext in cleaned_mechanical:
+        offset = 0.028
+        print("it is mech")
+        event_folder = "C:/Users/silic/Desktop/events_with_noise_by_catagory/events_with_noise_mechanical/"
+        #print("mech")
+    elif file_no_ext in cleaned_4stim:
+        offset = 0.021
+        event_folder = "C:/Users/silic/Desktop/events_with_noise_by_catagory/events_with_noise_4stim/"
+        #print("4stim")
+    
+    elif file_no_ext in cleaned_thermal:
+        offset = 0.021
+        event_folder = "C:/Users/silic/Desktop/events_with_noise_by_catagory/events_with_noise_thermal/"
+        #print("thermal")
+
+    else:
+        print("it is running else") # if offset is zero, meaning that that abf detected events does not have event table???
+        event_folder = ""
+        count = count +1
+        print(count)
+        continue
+
+    #print(start_samp)
+    #print(return_samp)
+
+   
+    #file_name_no_extension = file.rsplit(".", 1)[0] # remove everything after the last dot (1), and take the first part (the name, not the thing removed, so [0])
+    #print(cleaned_mechanical)
+    #print("hi")
+
+
+    #print(file_name_no_extension)
+    #print(cleaned_thermal)
+
+
+    print("offset: ",offset) 
+
+    # read abf file
+    file_abf = "C:/Users/silic/Desktop/master_project_updated_pipeline_backup/abf_folders_all_three_categories/" + file
+    importer = ephys.importdata.ImportData(file_abf, ext = ".ABF")
+    data = importer.load_data()
+    primary_data = data.get_primary_data()
+    time_array = data.time_array
+    time_array = time_array - offset # offset is 0.028 for mechanical stimulator, 0.021 for mechanical stimulator and 4stim, defined earlier in the script
+
+    data_array = primary_data[record, :]
+    time_ = time_array[record, :]
+
+
+    # sampling rate in Hz
+    fs = 1.0 / float(data.ts)
+
+    # select the time (in samples) and the raw value, from my defined index
+    time_noise = time_[start_samp:return_samp+1]
+    
+    #print(time_noise)
+
+    event_table_path = event_folder + file_no_ext + ".csv"
+    #print(event_table_path)
+
+    with open(event_table_path, mode='r') as event:
+        csv_reader = csv.DictReader(event)  
+        event_list = [] 
+        for row in csv_reader:
+            event_list.append(row)
+
+    print(len(event_list))
+
+    # define noise period
+    noise_start = time_noise[0]
+    noise_end = time_noise[-1]
+    
+    # find target time
+    # for every row, get the baseline_time
+
+    matched_rows = []
+    for row in event_list:
+        # find target time — check if baseline_time falls within the noise window
+        event_original_time = float(row["Event.Time..s."])
+        if noise_start <= event_original_time <= noise_end:
+            print("i found the row that matches:", row)
+            matched_rows.append(row)
+            print(row)
+
+    # store into a dict
+    noise_records.append({
+        "file": file,
+        "sweep": record,
+        "start_sample": start_samp,
+        "return_sample": return_samp,
+        "time_noise": list(time_noise),   # convert numpy array to list
+        "matched_peak_rows": matched_rows 
+    })
+
+    for row in matched_rows:
+        event_original_time = float(row["Event.Time..s."])
+        # find which sample index in time_ this baseline_time corresponds to
+        #sample_idx = np.argmin(np.abs(time_ - baseline_time))
+
+        baseline = float(row["Baseline..pA."])
+        
+
+        row["corrected_peak_index"] = return_samp + 10
+        row["corrected_peak_time"] = time_[return_samp + 10]
+        row["corrected_peak_pA"] = data_array[return_samp + 10]
+        row["corrected_peak_amp_pA"] = row["corrected_peak_pA"] - baseline
+
+        print("updated row:", row)
+
+    if matched_rows:
+        output_csv = f"C:/Users/silic/Desktop/peak_with_noise_corrected/corrected_{file_no_ext}.csv"
+
+        # re-build dictionary name/new added key, so that it can be stored
+
+        fieldnames = set()
+        for row in event_list:
+            fieldnames.update(row.keys())
+        fieldnames = list(fieldnames)
+
+
+        with open(output_csv, mode='w', newline='') as file:
+            writer = csv.DictWriter(file, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(event_list)
+
+output_csv = "C:/Users/silic/Desktop/peak_with_noise_corrected/noise_windows.csv"
+
+# build fieldnames from all rows
+fieldnames = set()
+for row in noise_records:
+    fieldnames.update(row.keys())
+fieldnames = list(fieldnames)
+
+with open(output_csv, mode='w', newline='') as f:
+    writer = csv.DictWriter(f, fieldnames=fieldnames)
+    writer.writeheader()
+    writer.writerows(noise_records)
+
+########################
+
+### (i used the exact same code for peak anlysis to see if the detected peak by my new code to detect sample jump, alreayd have overlapped with the detectd peak from randomforest, half of it oevrlap, the newly detected one were to be excluded later
+# load baseline corrected event detailes include corrected amplitude etc
+noise_rows_bl <- read.csv("C:/Users/silic/Desktop/baseline_with_noise_corrected/noise_windows.csv")
+
+# csv was output by python so has numpy stuff needs unpack, but first select the non empty row, measn the baseline is in contaminsaed region???
+bl <- noise_rows_bl[noise_rows_bl$matched_baseline_rows != "[]",]
+
+bl_extract <- bl %>%
+  mutate(
+    Event_Time = str_extract(bl$matched_baseline_rows, "(?<='Event.Number': ')[^']+"),
+    Record = str_extract(bl$matched_baseline_rows, "(?<='Record': ')[^']+"),
+    event_time = str_extract(bl$matched_baseline_rows, "(?<='Event.Time..s.': ')[^']+"),
+    baseline_current = str_extract(bl$matched_baseline_rows, "(?<='Baseline..pA.': ')[^']+"),
+    peak_current = str_extract(bl$matched_baseline_rows, "(?<='Peak..pA.': ')[^']+"),
+    amplitude = str_extract(bl$matched_baseline_rows, "(?<='Amplitude..pA.': ')[^']+"),
+    event_id = str_extract(bl$matched_baseline_rows, "(?<='event_id': ')[^']+"),
+    noise = str_extract(bl$matched_baseline_rows, "(?<='noise': ')[^']+"),
+    event_index= str_extract(bl$matched_baseline_rows, "(?<='event_index': ')[^']+"),
+    file_prefix = str_extract(bl$matched_baseline_rows, "(?<='file_prefix': ')[^']+"),
+    baseline_time = str_extract(bl$matched_baseline_rows, "(?<='baseline_time': ')[^']+"),
+    event_entry_number = str_extract(bl$matched_baseline_rows, "(?<='event_entry_number': ')[^']+"),
+    corrected_baseline_index = str_extract(matched_baseline_rows,
+                                           "(?<='corrected_baseline_index': )[-0-9.]+"),
+    corrected_baseline_time = str_extract(matched_baseline_rows,
+                                          "(?<='corrected_baseline_time': np\\.float64\\()[^)]*"),
+    corrected_baseline_pA = str_extract(matched_baseline_rows,
+                                        "(?<='corrected_baseline_pA': np\\.float64\\()[^)]*"),
+    corrected_amplitude_pA = str_extract(matched_baseline_rows,
+                                         "(?<='corrected_amplitude_pA': np\\.float64\\()[^)]*"))
+    
+
+bl_extract_no <- bl_extract[bl_extract$noise == "no",]
+# 102 total, no is 100
+
+
+events_all_needed_bl <- events_all %>%
+  filter(event_entry_number %in% bl_extract_no$event_entry_number)
+
+bl_extract_no_value <- bl_extract_no[,18:22]
+
+bl_extract_no_value$event_entry_number <- as.numeric(bl_extract_no_value$event_entry_number)
+
+events_bl_with_corrected_value <- events_all_needed_bl %>%
+  left_join(bl_extract_no_value, by = "event_entry_number")
+# ensure data type for compration
+events_bl_with_corrected_value$corrected_amplitude_pA <- as.numeric(events_bl_with_corrected_value$corrected_amplitude_pA)
+events_bl_with_corrected_value$corrected_baseline_time <- as.numeric(events_bl_with_corrected_value$corrected_baseline_time)
+events_bl_with_corrected_value$Event.Time..s. <- as.numeric(events_bl_with_corrected_value$Event.Time..s.)
+
+#### where did the datafraem from my pot come from? here: 
+
+events_bl_with_corrected_value (check if same sign of amplitude, save the logical output to df)) -- df (if same sign, include, save to df_true) -- df_true --df_true_amp (bigger than 5pA) -- df_true_amp_time (bl time begfore peak)-- df_true_amp_time_decrease (amp has decreased afer correctin)
+
+
+#100 rows
+df <- events_bl_with_corrected_value |>
+  mutate(same_sign = sign(Amplitude..pA.) == sign(corrected_amplitude_pA ))
+
+#46 exclude now , go
+df_exclude_bl <- df |>
+  filter(!event_id %in% df_true_amp_time_decrease$event_id)
+
+# corrected: 54 obs
+View(df_true_amp_time_decrease)
+
+#86 rows
+# check if old and new amplitude is same sign 
+df_true <- df[df$same_sign == "TRUE",]
+
+# 62 rows
+# check if updated amplitude is bigger than 5pA
+df_true_amp <- df_true[abs(df_true$corrected_amplitude_pA) > 5,]
+
+# 57 rows
+# check if updated baseline positioned before peak event time
+df_true_amp_time <- df_true_amp[df_true_amp$corrected_baseline_time < df_true_amp$Event.Time..s. ,]
+
+
+# 54 rows
+# check if the amp is decreased
+df_true_amp_time_decrease <- df_true_amp_time[abs(df_true_amp_time$corrected_amplitude_pA)
+                                              < abs(df_true_amp_time$Amplitude..pA.),]
+
+df_true_amp_time_decrease <- df_true_amp_time_decrease |>
+  mutate(difference = abs(Amplitude..pA.) - abs(corrected_amplitude_pA)
+  )
+
+###
+
+# baseline correction raincloud
+
+# prepare datafra,e
+
+
+
+df_plot <- df
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+
+df_plot <- df %>%
+  mutate(id = row_number()) %>%
+  select(id, Amplitude..pA., corrected_amplitude_pA) %>%
+  pivot_longer(
+    cols = c(Amplitude..pA., corrected_amplitude_pA),
+    names_to = "group",
+    values_to = "amplitude"
+  ) %>%
+  mutate(
+    group = factor(
+      group,
+      levels = c("Amplitude..pA.", "corrected_amplitude_pA"),
+      labels = c("Before", "After")
+    ),
+    amplitude = amplitude
+  )
+
+
+
+hi <- df_true_amp_time_decrease  %>%
+  mutate(id = row_number()) %>%
+  select(id, Amplitude..pA., corrected_amplitude_pA) %>%
+  pivot_longer(
+    cols = c(Amplitude..pA., corrected_amplitude_pA),
+    names_to = "group",
+    values_to = "amplitude"
+  ) %>%
+  mutate(
+    group = factor(
+      group,
+      levels = c("Amplitude..pA.", "corrected_amplitude_pA"),
+      labels = c("Before", "After")
+    ),
+    amplitude = amplitude
+  )
+
+
+
+# plot and save
+result_plot <- ggplot(df_plot, aes(x = group, y = amplitude, group = id)) +
+  
+  # add violin cloud to see distribution
+  geom_violin(
+    aes(group = group),
+    alpha = 1,
+    fill = "grey",
+    color = NA,
+    width = 1.5
+  ) +
+
+  
+  # Add lines linking same events
+  geom_line(
+    aes(color = "Event discarded"),
+    alpha = 0.6,
+    linewidth = 0.2
+  ) +
+
+  # lines linking same events (corrected)
+  geom_line(
+    data = hi,
+    aes(x = group, y = amplitude, group = id, color = "Event corrected"),
+    alpha = 0.6,
+    linewidth = 0.2
+  ) +
+  
+  # Add events amplitude scatter plot
+  geom_point(
+    size = 0.8,
+    alpha = 0.7,
+    stroke = 0,
+    color = "black"
+  ) +
+  
+  # add line at zero to see IPSC EPSC group correction
+  geom_hline(
+    yintercept = 0,
+    linetype = "dashed",
+    color = "grey40",
+    linewidth = 0.4
+  ) +
+  
+  theme_classic() +
+  labs(
+    x = "",
+    y = "Amplitude (pA)",
+    title = "Amplitude changes after baseline correction"
+  ) +
+
+  scale_color_manual(
+    name = NULL,
+    values = c("Event corrected" = "#0072B2", "Event discarded" = "#E69F00")
+  ) +
+  
+  theme_classic(base_size = 11) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 12),
+    axis.text = element_text(color = "black"),
+    axis.title = element_text(face = "plain"),
+    axis.line = element_line(linewidth = 0.4),
+    axis.ticks = element_line(linewidth = 0.4),
+    legend.position = "bottom"
+  )
+
+#result_plot
+
+
+ggsave("C:/Users/silic/Desktop/original_vs_corrected_amplitude.tiff", result_plot, 
+       height = 3.5, width = 4.5,  units = "in", dpi = 300)
+
+
+  
+ggsave(
+  "C:/Users/silic/Desktop/original_vs_corrected_amplitude.png",
+  plot = result_plot,
+  width = 8,
+  height = 6,
+  dpi = 300
+)
