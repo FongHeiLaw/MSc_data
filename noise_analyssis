@@ -490,8 +490,24 @@ ggsave(
 #df_filtered <-peak_extract %>%
 #  filter(event_entry_number %in% list_manual_ambiguoius )
 
+# select event with amplitude bigger than 800:
+
+# Load big event table
+events <- read.csv("C:/Users/silic/Desktop/master_project_updated_pipeline_backup/all_events_no_noise.csv")
+View(events)
+
+events$Amplitude..pA. <- as.numeric(events$Amplitude..pA.)
+amp800  = events[events$'Amplitude..pA.' >= 800,]
+
+View(amp800)
+names(amp800)
+write.csv(amp800,"C:/Users/silic/Desktop/events_no_noise_amp80.csv",
+          row.names = FALSE)
+
+###
 
 
+#############
 ### full pipeline
 # ambigous for sue was those newly predicted by new traiend RF,m visaullt inspedcted and decided to exclude
 # # Load big event table # 508758
