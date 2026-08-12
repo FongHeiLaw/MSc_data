@@ -148,3 +148,300 @@ final_table_stim_with_date_with_cell <- final_table_stim_with_date %>%
 # update stim period end time, stijmulus time (absolute seconds from t=0) + stim period (1 or 2s)
 final_table_stim_with_date_with_cell$stim_period_end_time <-final_table_stim_with_date_with_cell$stim_abs_time + final_table_stim_with_date_with_cell$stim_period_duration
 
+
+
+##### calcualte MI and plot boxplot and violin
+
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(ggdist)
+
+#493583
+analysis <- readr::read_csv("C:/Users/silic/Desktop/final_table_stim_with_date_with_cell.csv")
+
+
+###
+# rejoin the mV column, had a bug in github code, did not bind mV column coz df name wrong
+# import metadata, 44 variables, updated df including broad_type and narrow_type column names, replaced +10mV to 0mV
+meta <- read.csv("C:/Users/silic/Desktop/master_project_updated_pipeline_backup/metadata_with_base_name_23_to_26_updated.csv")
+
+meta <- meta |>
+  mutate(file_name_clean = sub("\\.abf$", "", file_name, ignore.case = TRUE))
+
+meta$file_name_clean
+
+final_table_stim_with_date_with_cell <- analysis |>
+  left_join(meta |> select(file_name_clean, mV), by = c("file_prefix" = "file_name_clean"))
+
+# save
+write.csv(final_table_stim_with_date_with_cell,"C:/Users/silic/Desktop/final_table_stim_with_date_with_cell.csv",row.names = FALSE)
+
+
+######
+
+df <- final_table_stim_with_date_with_cell
+
+
+
+df <- df |>
+  rename(
+    event_time   = 'Event.Time..s.',
+    amplitude    = 'Amplitude..pA.',
+    event_type   = mV,       
+    stim_start   = stim_abs_time,
+    baseline_start = baseline_period_start_time
+  )
+
+
+# calculate pre/post from event time vs stimulus time, still same nrow
+df <- df |>
+  mutate(
+    pre_or_post = ifelse(event_time > stim_start, "post", "pre"),
+    amplitude = abs(amplitude)
+  ) |>
+  filter(!is.na(pre_or_post))
+
+
+
+# ensure data type
+df <- df |>
+  mutate(
+    file_prefix  = as.factor(file_prefix),
+    event_type = as.factor(event_type)   # event type is EPSC/ IPSC, number eitehr 0 or -70mV
+  )
+
+# save
+write.csv(df,"C:/Users/silic/Desktop/df.csv",row.names = FALSE)
+
+
+summary_df <- df |>
+  group_by(file_prefix, event_type, pre_or_post) |>
+  summarise(
+    n_events = n(),
+    # if it is baseline, use 5 seconds to average, otherwise, use the stored column of post stim t (1/2second)
+    duration = if (first(pre_or_post) == "pre") {5
+      } else {first(stim_period_duration)
+        }, 
+    # need to take the first appeared duraction in this recording file, otherwise has error cpz size 1092
+    freq = n_events / duration,
+    mean_amp = mean(amplitude, na.rm = TRUE),   # if there are no events in the row, amplitude is na, then this program will delete the events, na.rm = true means delete na
+    median_amp = median(amplitude, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# save 898 oversbeation
+write.csv(summary_df,"C:/Users/silic/Desktop/summary_df.csv",row.names = FALSE)
+
+# store the pre stim and post stim frequency
+MI_freq <- summary_df |>
+  select(file_prefix, event_type, pre_or_post, freq) |>
+  pivot_wider(
+    names_from = pre_or_post,
+    values_from = freq
+  ) |>
+  mutate(
+    MI_freq = (post - pre) / (post + pre)
+  )
+
+# sanity check
+
+####
+sanity_MI_freq <- MI_freq |>
+  summarise(
+    n = n(),
+    n_positive = sum(MI_freq > 0, na.rm = TRUE),
+    n_negative = sum(MI_freq < 0, na.rm = TRUE),
+    n_zero = sum(MI_freq == 0, na.rm = TRUE),
+    n_NA = sum(is.na(MI_freq))
+  )
+# all positive
+
+####
+# store the pre stim and post stim amp
+MI_mean_amp <- summary_df |>
+  select(file_prefix, event_type, pre_or_post, mean_amp) |>
+  pivot_wider(
+    names_from = pre_or_post,
+    values_from = mean_amp
+  ) |>
+  mutate(
+    MI_mean_amp = (post - pre) / (post + pre)
+  )
+
+
+
+# sanity check mean amp
+
+####
+sanity_mean_amp <- MI_mean_amp |>
+  summarise(
+    n = n(),
+    n_positive = sum(MI_mean_amp > 0, na.rm = TRUE),
+    n_negative = sum(MI_mean_amp < 0, na.rm = TRUE),
+    n_zero = sum(MI_mean_amp == 0, na.rm = TRUE),
+    n_NA = sum(is.na(MI_mean_amp))
+  )
+
+# 330 positive, 119 negative
+
+
+### median
+
+####
+# store the pre stim and post stim amp, median
+MI_median_amp <- summary_df |>
+  select(file_prefix, event_type, pre_or_post, median_amp) |>
+  pivot_wider(
+    names_from = pre_or_post,
+    values_from = median_amp
+  ) |>
+  mutate(
+    MI_median_amp = (post - pre) / (post + pre)
+  )
+
+
+
+# sanity check medan amp
+
+####
+sanity_median_amp <- MI_median_amp |>
+  summarise(
+    n = n(),
+    n_positive = sum(MI_median_amp > 0, na.rm = TRUE),
+    n_negative = sum(MI_median_amp < 0, na.rm = TRUE),
+    n_zero = sum(MI_median_amp == 0, na.rm = TRUE),
+    n_NA = sum(is.na(MI_median_amp))
+  )
+
+# 307 positive, 142 negative
+
+
+## now join three saved result table of MI togetehr, start with a small one MI freq, hen join
+
+MI_all <- MI_freq |>
+  select(file_prefix, event_type, MI_freq) |>
+  left_join(
+    MI_mean_amp |>
+      select(file_prefix, event_type, MI_mean_amp),
+    by = c("file_prefix", "event_type")
+  ) |>
+  left_join(
+    MI_median_amp |>
+      select(file_prefix, event_type, MI_median_amp),
+    by = c("file_prefix", "event_type")
+  )
+
+
+
+# raincloud plot
+
+p1 <- ggplot(MI_all, aes(x = event_type, y = MI_freq, fill = event_type)) +
+  geom_violin(width = 0.8,alpha = 0.6, outlier.shape = NA) +
+  geom_boxplot(width = 0.1,alpha = 0.8,outlier.shape = NA) +
+  #geom_boxplot(width = 0.5, alpha = 0.7) +
+  #geom_jitter(width = 0.2, alpha = 0.15) +
+  theme_minimal() +
+  labs(title = "Modulation Index of frequency", x = NULL, y = "Modulation Index (-1 to 1)")+
+  scale_fill_manual(values = c("0" = "#0072B2", "-70" = "#E69F00")) +
+  scale_x_discrete(labels = c("0" = "EPSC", "-70" = "IPSC")) +
+  theme_classic(base_size = 11) +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 12),
+    axis.text = element_text(color = "black", size = 12),
+    axis.title = element_text(face = "plain", size = 12),
+    axis.line = element_line(linewidth = 0.4),
+    axis.ticks = element_line(linewidth = 0.4)
+  )
+p1
+
+
+ggsave("C:/Users/silic/Desktop/p1_MI_freq.tiff", p1, 
+       height = 3.5, width = 4.5,  units = "in", dpi = 300)
+
+
+  
+ggsave(
+  "C:/Users/silic/Desktop/p1_MI_freq.png",
+  plot = p1,
+  width = 4.5,
+  height = 3.5,
+  dpi = 300
+)
+
+
+
+
+p2 <- ggplot(MI_all, aes(x = event_type, y = MI_mean_amp, fill = event_type)) +
+  geom_violin(width = 0.8,alpha = 0.6, outlier.shape = NA) +
+  geom_boxplot(width = 0.1,alpha = 0.8,outlier.shape = NA) +
+  #geom_boxplot(width = 0.5, alpha = 0.7) +
+  #geom_jitter(width = 0.2, alpha = 0.15) +
+  theme_minimal() +
+  labs(title = "Modulation Index of mean amplitude", x = NULL, y = "Modulation Index (-1 to 1)")+
+  scale_fill_manual(values = c("0" = "#0072B2", "-70" = "#E69F00")) +
+  scale_x_discrete(labels = c("0" = "EPSC", "-70" = "IPSC")) +
+  theme_classic(base_size = 11) +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 12),
+    axis.text = element_text(color = "black", size = 12),
+    axis.title = element_text(face = "plain", size = 12),
+    axis.line = element_line(linewidth = 0.4),
+    axis.ticks = element_line(linewidth = 0.4)
+  )
+
+
+
+p3 <- ggplot(MI_all, aes(x = event_type, y = MI_median_amp, fill = event_type)) +
+  geom_violin(width = 0.8,alpha = 0.6, outlier.shape = NA) +
+  geom_boxplot(width = 0.1,alpha = 0.8,outlier.shape = NA) +
+  #geom_jitter(width = 0.2, alpha = 0.15) +
+  theme_minimal() +
+  labs(title = "Modulation Index of median amplitude", x = NULL, y = "Modulation Index (-1 to 1)")+
+  scale_fill_manual(values = c("0" = "#0072B2", "-70" = "#E69F00")) +
+  scale_x_discrete(labels = c("0" = "EPSC", "-70" = "IPSC")) +
+  theme_classic(base_size = 11) +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 12),
+    axis.text = element_text(color = "black", size = 12),
+    axis.title = element_text(face = "plain", size = 12),
+    axis.line = element_line(linewidth = 0.4),
+    axis.ticks = element_line(linewidth = 0.4)
+  )
+
+
+# save p2 mean ##########
+ggsave("C:/Users/silic/Desktop/p2_MI_mean_amp.tiff", p2, 
+       height = 3.5, width = 4.5,  units = "in", dpi = 300)
+
+ggsave(
+  "C:/Users/silic/Desktop/p2_MI_mean_amp.png",
+  plot = p2,
+  width = 4.5,
+  height = 3.5,
+  dpi = 300
+)
+
+# save p3 median ############
+
+ggsave("C:/Users/silic/Desktop/p3_MI_median_amp.tiff", p3, 
+       height = 3.5, width = 4.5,  units = "in", dpi = 300)
+
+
+  
+ggsave(
+  "C:/Users/silic/Desktop/p3_MI_median_amp.png",
+  plot = p3,
+  width = 4.5,
+  height = 3.5,
+  dpi = 300
+)
+
+```
+
+
