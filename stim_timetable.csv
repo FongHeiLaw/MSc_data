@@ -1,0 +1,10 @@
+Record,category,abs_sweep_start_time,stim_rel_time,stim_abs_time,baseline_period_start_time,baseline_period,stim_period_duration,stim_period_end_time
+0,mechanical,0,5,5,0,5,1,6
+1,mechanical,26.6666667,5,31.6666667,26.6666667,5,1,32.6666667
+2,mechanical,53.33333,5,58.33333,53.33333,5,1,59.33333
+3,mechanical,80,5,85,80,5,1,86
+0,4stim,0,7.3906,7.3906,2.3906,5,,
+1,4stim,25,7.3906,32.3906,27.3906,5,,
+2,4stim,50,7.3906,57.3906,52.3906,5,,
+3,4stim,75,7.3906,82.3906,77.3906,5,,
+0,thermal,0,10.93755,10.93755,5.93755,5,2,12.93755
