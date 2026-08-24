@@ -1,3 +1,243 @@
+df_selected <- df |>
+  select(
+    file_prefix,
+    global_cell_number,
+    Record,
+    event_type,
+    record_date,
+    broad_type,
+    narrow_type,
+    Cell
+  ) |>
+  distinct(file_prefix,.keep_all = TRUE)
+
+
+View(df_selected)
+
+
+MI_avg_joined <- MI_avg |>
+  left_join(df_selected, by = c("file_prefix")
+  )
+    
+View(MI_avg_joined)
+
+# save
+write.csv(MI_avg_joined,"C:/Users/silic/Desktop/MI_avg_joined.csv",row.names = FALSE)
+
+# ensure data type
+
+MI_avg_joined$narrow_type <- as.factor(MI_avg_joined$narrow_type)
+MI_avg_joined$broad_type <- as.factor(MI_avg_joined$broad_type)
+MI_avg_joined$record_date <- as.factor(MI_avg_joined$record_date)
+
+MI_avg_joined$Cell <- as.factor(MI_avg_joined$Cell)
+
+MI_avg_joined$global_cell_number <- as.factor(MI_avg_joined$global_cell_number)
+MI_avg_joined$event_type <- as.factor(MI_avg_joined$event_type)
+MI_avg_joined$file_prefix <- as.factor(MI_avg_joined$file_prefix)
+
+
+
+MI_avg_joined$scaled_freq <- ((MI_avg_joined$mean_MI_freq) +1 )/2
+MI_avg_joined$scaled_median_amp <- ((MI_avg_joined$MI_median_amp) +1 )/2
+MI_avg_joined$scaled_mean_amp <- ((MI_avg_joined$MI_mean_amp) +1 )/2
+
+
+library(lme4)
+library(lmerTest)
+library(glmmTMB)
+
+# frequency
+
+# m2 wins
+
+
+null_model <- glmmTMB(scaled_freq ~ 1 + 
+                              (1 | global_cell_number),
+  family = beta_family(link = "logit"),
+  data = MI_avg_joined
+)
+
+
+
+m1a <- glmmTMB(scaled_freq ~ event_type + 
+                              (1 | global_cell_number),
+  family = beta_family(link = "logit"),
+  data = MI_avg_joined
+)
+
+
+m1b  <- glmmTMB(scaled_freq ~ narrow_type,
+  family = beta_family(link = "logit"),
+  data = MI_avg_joined
+)
+
+m2 <- glmmTMB(scaled_freq ~ narrow_type + 
+                              event_type + 
+                              (1 | global_cell_number),
+  family = beta_family(link = "logit"),
+  data = MI_avg_joined
+)
+
+
+m3 <- glmmTMB(scaled_freq ~ narrow_type + 
+                              event_type + 
+                              narrow_type * event_type + 
+                              (1 | global_cell_number),
+  family = beta_family(link = "logit"),
+  data = MI_avg_joined
+)
+
+anova(m3, m2)   # df = 6
+b <- 2*(logLik(m3)[1] - logLik(m2)[1])
+1 - pchisq(b, 6) # 0.1915
+# m2 better than m3
+
+anova(m2, m1a)   # df = 2
+b <- 2*(logLik(m2)[1] - logLik(m1a)[1])
+1 - pchisq(b, 6) # 0.00509
+# m2 is better than m1a
+
+anova(m2, m1b)   # df = 2
+b <- 2*(logLik(m2)[1] - logLik(m1a)[1])
+1 - pchisq(b, 2) # 0.59 e-5
+# m2 is better than m1b
+
+
+####
+
+
+# median
+# m1b wins
+m1a_median <- glmmTMB(scaled_median_amp ~ event_type +
+                              (1 | global_cell_number),
+  family = beta_family(link = "logit"),
+  data = MI_avg_joined
+)
+
+m1b_median <- glmmTMB(scaled_median_amp ~ narrow_type +
+                              (1 | global_cell_number),
+  family = beta_family(link = "logit"),
+  data = MI_avg_joined
+)
+summary(m1b_median)
+
+
+m2_median <- glmmTMB(scaled_median_amp ~ narrow_type + 
+                              event_type + 
+                              (1 | global_cell_number),
+  family = beta_family(link = "logit"),
+  data = MI_avg_joined
+)
+
+
+m3_median <- glmmTMB(scaled_median_amp ~ narrow_type + 
+                              event_type + 
+                              narrow_type * event_type + 
+                              (1 | global_cell_number),
+  family = beta_family(link = "logit"),
+  data = MI_avg_joined
+)
+
+anova(m3_median, m2_median)   # df = 6
+b <- 2*(logLik(m3_median)[1] - logLik(m2_median)[1])
+1 - pchisq(b, 6) # 0.195
+# m2 better than m3
+
+anova(m2_median, m1b_median)   # df = 1
+b <- 2*(logLik(m2_median)[1] - logLik(m1b_median)[1])
+1 - pchisq(b, 1) # 0.09
+# m1b better than m2
+
+anova(m2_median, m1a_median)   # df = 6
+b <- 2*(logLik(m2_median)[1] - logLik(m1a_median)[1])
+1 - pchisq(b, 6) # 0.04
+# m2 better than m1a
+
+
+
+# m1b wins
+null_mean <- glmmTMB(scaled_mean_amp ~ 1 +
+                              (1 | global_cell_number),
+  family = beta_family(link = "logit"),
+  data = MI_avg_joined
+)
+
+
+m1a_mean <- glmmTMB(scaled_mean_amp ~event_type +
+                              (1 | global_cell_number),
+  family = beta_family(link = "logit"),
+  data = MI_avg_joined
+)
+
+
+m1b_mean <- glmmTMB(scaled_mean_amp ~ narrow_type +
+                              (1 | global_cell_number),
+  family = beta_family(link = "logit"),
+  data = MI_avg_joined
+)
+
+
+m2_mean <- glmmTMB(scaled_mean_amp ~ narrow_type + 
+                              event_type +
+                              (1 | global_cell_number),
+  family = beta_family(link = "logit"),
+  data = MI_avg_joined
+)
+
+
+m3_mean <- glmmTMB(scaled_mean_amp ~ narrow_type + 
+                              event_type + 
+                              narrow_type * event_type + 
+                              (1 | global_cell_number),
+  family = beta_family(link = "logit"),
+  data = MI_avg_joined
+)
+summary(m3_mean)
+
+anova(m3_mean, m2_mean)   # df = 6
+b <- 2*(logLik(m3_mean)[1] - logLik(m2_mean)[1])
+1 - pchisq(b, 6) # 0.2449
+# m2 better than m3
+
+anova(m2_mean, m1b_mean)   # df = 1
+b <- 2*(logLik(m2_mean)[1] - logLik(m1b_mean)[1])
+1 - pchisq(b, 1) # 0.88
+# m1b better than m2
+
+anova(m2_mean, m1a_mean)   # df = 1
+b <- 2*(logLik(m2_mean)[1] - logLik(m1a_mean)[1])
+1 - pchisq(b, 6) # 0.0134
+# m2 better than m1a
+
+
+anova(m1b_mean, null_mean)   # df = 1
+b <- 2*(logLik(m1b_mean)[1] - logLik(null_mean)[1])
+1 - pchisq(b, 6) # 0.01355
+# m2 better than m1a
+
+
+
+# three winnning models:
+m1b_median <- glmmTMB(scaled_median_amp ~ narrow_type +
+                              (1 | global_cell_number),
+  family = beta_family(link = "logit"),
+  data = MI_avg_joined
+)
+m1b_mean <- glmmTMB(scaled_mean_amp ~ narrow_type +
+                              (1 | global_cell_number),
+  family = beta_family(link = "logit"),
+  data = MI_avg_joined
+)
+m2 <- glmmTMB(scaled_freq ~ narrow_type + 
+                              event_type + 
+                              (1 | global_cell_number),
+  family = beta_family(link = "logit"),
+  data = MI_avg_joined
+)
+
+
+
 # result section tidied, goal: output all 6 models, i need detailed numebrs
 
 ## TIDYING write up thesis ##
