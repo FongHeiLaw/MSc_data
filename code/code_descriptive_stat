@@ -217,6 +217,7 @@ df <- df |>
 write.csv(df,"C:/Users/silic/Desktop/df.csv",row.names = FALSE)
 
 # wrong code, n() are all pre and post events but the pre is up to more than 5seconds earlier, post is up to 1-2 seconds later until the last detected events in the recording, wrong code
+# also, every recording has 4 sweeps, so 4 baseline record, 4 stim period events 1 per record
 summary_df <- df |>
   group_by(file_prefix, event_type, pre_or_post) |>
   summarise(
