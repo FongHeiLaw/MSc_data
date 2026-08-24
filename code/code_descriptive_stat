@@ -216,7 +216,7 @@ df <- df |>
 # save
 write.csv(df,"C:/Users/silic/Desktop/df.csv",row.names = FALSE)
 
-
+# wrong code, n() are all pre and post events but the pre is up to more than 5seconds earlier, post is up to 1-2 seconds later until the last detected events in the recording, wrong code
 summary_df <- df |>
   group_by(file_prefix, event_type, pre_or_post) |>
   summarise(
