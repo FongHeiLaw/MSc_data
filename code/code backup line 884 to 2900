@@ -1,0 +1,2037 @@
+```{r}
+
+
+df <- final_table_clean 
+
+```
+
+
+```{r}
+df <- df |>
+  rename(
+    event_time   = "Event.Time..s.",
+    amplitude    = "Amplitude..pA.",
+    event_type   = mV,       
+    stim_start   = stim_abs_time,
+    baseline_start = baseline_period_start_time
+  )
+
+
+# calculate pre/post from event time vs stimulus time, still same nrow
+df <- df |>
+  mutate(
+    pre_or_post = case_when(
+      event_time >= baseline_start & event_time < baseline_start + 5 ~ "pre",
+      event_time > stim_start & event_time <= stim_start + stim_period_duration ~ "post",
+      TRUE ~ NA_character_
+    ),
+    amplitude_raw = amplitude,
+    amplitude = abs(amplitude)
+  ) |>
+  filter(!is.na(pre_or_post))
+# 130241 observation
+
+
+# ensure data type
+df <- df |>
+  mutate(
+    file_prefix  = as.factor(file_prefix),
+    event_type = as.factor(event_type),
+    # event type is EPSC/ IPSC, number eitehr 0 or -70mV
+    Record      = as.factor(Record))
+
+View(df)
+
+
+# save
+#write.csv(df,"C:/Users/silic/Desktop/df_v4.csv",row.names = FALSE)
+
+
+
+### 1. Count how many Records exist per file_prefix 
+records_per_file <- df |>
+  group_by(file_prefix) |>
+  summarise(n_records = n_distinct(Record), .groups = "drop")
+
+#View(records_per_file)
+
+### 2. Get stim_period_duration per file 
+stim_duration_per_file <- df |>
+  group_by(file_prefix) |>
+  summarise(stim_period_duration = first(stim_period_duration), .groups = "drop")
+
+#View(stim_duration_per_file)
+
+
+#View(df)
+
+### 3. Pooled event counts per file_prefix / event_type / pre_or_post
+summary_df <- df |>
+  group_by(file_prefix, pre_or_post) |>
+  summarise(
+    n_events   = n(),
+    mean_amp   = mean(amplitude_raw, na.rm = TRUE),
+    median_amp = median(amplitude_raw, na.rm = TRUE),
+    mad_amp    = mad(amplitude_raw, na.rm = TRUE),
+    sd_amp     = sd(amplitude_raw, na.rm = TRUE),
+    sem_amp    = sd(amplitude_raw, na.rm = TRUE) / sqrt(n_events),
+    .groups = "drop"
+  ) |>
+  left_join(records_per_file, by = "file_prefix") |>
+  left_join(stim_duration_per_file, by = "file_prefix") |>
+  mutate(
+    duration = if_else(pre_or_post == "pre", 5 * n_records, stim_period_duration * n_records),
+    freq = n_events / duration
+  )
+
+
+
+summary_df_sorted_correct <- summary_df |>
+  arrange(n_events)
+
+
+#View(df)
+
+
+#View(summary_df_mi_joined)
+
+summary_df_mi <- df |>
+  group_by(file_prefix, pre_or_post, Record) |>
+  summarise(
+    n_events   = n(),
+    mean_amp   = mean(amplitude_raw, na.rm = TRUE),
+    median_amp = median(amplitude_raw, na.rm = TRUE)
+  )
+    
+summary_df_mi_joined <- summary_df_mi |>
+  left_join(stim_duration_per_file, by = "file_prefix") 
+
+View(summary_df_mi_joined)
+
+
+# store the pre stim and post stim frequency
+MI_freq <- summary_df_mi_joined |>
+  group_by(file_prefix, pre_or_post, Record) |>
+  summarise(
+    # Each Record gets its own duration
+    duration = if_else(
+      pre_or_post == "pre",
+      5,
+      first(stim_period_duration)
+    )
+  )
+
+#View(MI_freq)
+
+MI_freq <- MI_freq |>
+  left_join(summary_df_mi_joined, by = c("file_prefix", "Record", "pre_or_post")
+  )
+    
+
+MI_freq <- MI_freq |> select(-"stim_period_duration")
+    
+
+# store the pre stim and post stim amp
+MI_freq_wide  <- MI_freq  |>
+  select(file_prefix, pre_or_post, mean_amp, Record) |>
+  pivot_wider(
+    names_from = pre_or_post,
+    values_from = mean_amp
+  ) |>
+  mutate(
+    MI_mean_amp = (post - pre) / (post + pre)
+  )
+
+
+#View(MI_freq_wide)
+MI_freq_wide <- MI_freq_wide |> select(-pre)
+MI_freq_wide <- MI_freq_wide |> select(-post)
+
+
+###
+
+# store the pre stim and post stim amp
+MI_freq_wide_median  <- MI_freq  |>
+  select(file_prefix, pre_or_post, median_amp, Record) |>
+  pivot_wider(
+    names_from = pre_or_post,
+    values_from = median_amp
+  ) |>
+  mutate(
+    MI_median_amp = (post - pre) / (post + pre)
+  )
+
+#View(MI_freq_wide_median)
+
+MI_freq_wide_median <- MI_freq_wide_median |> select(-pre)
+MI_freq_wide_median <- MI_freq_wide_median |> select(-post)
+
+MI_by_record <- MI_freq_wide_median |>
+  left_join(MI_freq_wide, by = c("file_prefix", "Record")
+  )
+    
+
+# save
+write.csv(MI_by_record,"C:/Users/silic/Desktop/MI_by_record.csv",row.names = FALSE)
+
+
+View(MI_by_record)
+
+######
+
+View(summary_df_mi_joined)
+
+# store the pre stim and post stim frequency
+summary_df_mi_joined_duration <- summary_df_mi_joined |>
+  group_by(file_prefix, pre_or_post, Record) |>
+  summarise(
+    # Each Record gets its own duration
+    duration = if_else(
+      pre_or_post == "pre",
+      5,
+      first(stim_period_duration)
+    )
+  )
+
+View(summary_df_mi_joined_duration)
+
+
+summary_df_mi_joined_v2 <- summary_df_mi_joined |>
+  left_join(summary_df_mi_joined_duration, by = c("file_prefix", 
+                                                  "Record",
+                                                  "pre_or_post")
+  )
+
+View(summary_df_mi_joined_v3)
+
+summary_df_mi_joined_v2 <- summary_df_mi_joined_v2 |> select(-"stim_period_duration")
+    
+
+
+summary_df_mi_joined_v3 <- summary_df_mi_joined_v2 |>
+  mutate(
+    freq = n_events / duration
+  )
+
+
+
+
+
+MI_freq_update <- summary_df_mi_joined_v3 |>
+  select(
+    file_prefix,
+    pre_or_post,
+    freq,
+    Record
+  ) |>
+  pivot_wider(
+    names_from = pre_or_post,
+    values_from = freq
+  ) |>
+  mutate(
+    MI_frequency = (post - pre) / (post + pre)
+  )
+
+#View(MI_freq_wide_median)
+
+MI_freq_update <- MI_freq_update |> select(-pre)
+MI_freq_update <- MI_freq_update |> select(-post)
+
+
+
+
+MI_by_record_with_freq <- MI_freq_update |>
+  left_join(MI_by_record, by = c("file_prefix", "Record")
+  )
+    
+View(MI_by_record_with_freq)
+
+
+
+# save
+write.csv(MI_by_record_with_freq,"C:/Users/silic/Desktop/MI_by_record_with_freq.csv",row.names = FALSE)
+
+MI_by_record_with_freq_no_na <- MI_by_record_with_freq |> filter(!is.na(MI_frequency)) # 1541
+
+
+
+MI_avg <- MI_by_record_with_freq_no_na |>
+  group_by(file_prefix) |>
+  summarise(
+    mean_MI_freq   = mean(MI_frequency, na.rm = TRUE),
+    MI_median_amp   = mean(MI_median_amp, na.rm = TRUE),
+    MI_mean_amp   = mean(MI_mean_amp, na.rm = TRUE)
+  ) 
+
+View(MI_avg)
+# save
+write.csv(MI_avg,"C:/Users/silic/Desktop/MI_avg.csv",row.names = FALSE)
+
+
+
+sanity_mean_freq <- MI_avg |>
+  summarise(
+    n = n(),
+    n_positive = sum(mean_MI_freq > 0, na.rm = TRUE),
+    n_negative = sum(mean_MI_freq < 0, na.rm = TRUE),
+    n_zero = sum(mean_MI_freq == 0, na.rm = TRUE),
+    n_NA = sum(is.na(mean_MI_freq))
+  )
+View(sanity_mean_freq)
+
+# 224 pos, 244 neg, 1 zero
+
+
+MI_avg_plot <- ggplot(MI_avg, aes(x = "", y = mean_MI_freq)) +
+  geom_violin(width = 0.8, alpha = 0.6, outlier.shape = NA) +
+  geom_boxplot(width = 0.2,alpha = 0.8, outlier.shape = NA) +
+  geom_jitter(width = 0.4, alpha = 0.05) +
+  theme_minimal() +
+  coord_cartesian(ylim = c(-1,1)) +
+  scale_y_continuous(breaks = seq(-1, 1, by = 0.1))+
+  labs(title = "Frequency", x = NULL, y = "")+
+  theme_classic(base_size = 11) +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(hjust = 0.5, face = "plain", size = 22),
+    axis.text = element_text(color = "black", size = 14),
+    axis.line = element_line(linewidth = 0.4),
+    axis.ticks = element_line(linewidth = 0.4)
+  )
+
+
+
+ggsave("C:/Users/silic/Desktop/MI_avg_freq.png", 
+       plot = MI_avg_plot, width = 6, height = 5, dpi = 600)
+
+
+#
+
+MI_avg_plot_median_amp <- ggplot(MI_avg, aes(x = "", 
+                                             y = MI_median_amp)) +
+  geom_violin(width = 0.8, alpha = 0.6, outlier.shape = NA) +
+  geom_boxplot(width = 0.2,alpha = 0.8, outlier.shape = NA) +
+  geom_jitter(width = 0.4, alpha = 0.05) +
+  theme_minimal() +
+  coord_cartesian(ylim = c(-1,1)) +
+  scale_y_continuous(breaks = seq(-1, 1, by = 0.1))+
+  labs(title = "Median amplitude", x = NULL, y = "")+
+  theme_classic(base_size = 11) +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(hjust = 0.5, face = "plain", size = 22),
+    axis.text = element_text(color = "black", size = 14),
+    axis.line = element_line(linewidth = 0.4),
+    axis.ticks = element_line(linewidth = 0.4)
+  )
+
+
+
+ggsave("C:/Users/silic/Desktop/MI_avg_plot_median_amp.png", 
+       plot = MI_avg_plot_median_amp, width = 6, height = 5, dpi = 600)
+
+
+MI_avg_plot_mean_amp <- ggplot(MI_avg, aes(x = "", 
+                                             y = MI_mean_amp)) +
+  geom_violin(width = 0.8, alpha = 0.6, outlier.shape = NA) +
+  geom_boxplot(width = 0.2,alpha = 0.8, outlier.shape = NA) +
+  geom_jitter(width = 0.4, alpha = 0.05) +
+  theme_minimal() +
+  coord_cartesian(ylim = c(-1,1)) +
+  scale_y_continuous(breaks = seq(-1, 1, by = 0.1))+
+  labs(title = "Mean amplitude", x = NULL, y = "")+
+  theme_classic(base_size = 11) +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(hjust = 0.5, face = "plain", size = 22),
+    axis.text = element_text(color = "black", size = 14),
+    axis.line = element_line(linewidth = 0.4),
+    axis.ticks = element_line(linewidth = 0.4)
+  )
+
+ggsave("C:/Users/silic/Desktop/MI_avg_plot_mean_amp.png", 
+       plot = MI_avg_plot_mean_amp, width = 6, height = 5, dpi = 600)
+
+
+
+# combine three plots into 1
+
+library(cowplot)
+
+combined_plot_MI <- plot_grid(
+  MI_avg_plot, MI_avg_plot_median_amp, MI_avg_plot_mean_amp,
+  labels = c("a )", "b )", "c )"),
+  ncol = 3,           
+  label_size = 27)
+
+combined_plot_MI
+
+save_plot("C:/Users/silic/Desktop/combined_plot_MI.png", 
+          combined_plot_MI, base_width = 15, base_height = 8, dpi = 300)
+
+library(patchwork)
+
+pl <- combined_plot_MI + 
+  plot_annotation(
+    title = "Response Index",
+  ) &
+  theme(
+    plot.title = element_text(size = 30, face = "bold", hjust = 0.5)
+  )
+ggsave("C:/Users/silic/Desktop/pl.png", pl, 
+       width = 15, height = 8, dpi = 300)
+
+summary(MI_avg)
+```
+
+
+```{r}
+names(df)
+```
+
+
+```{r}
+df_selected <- df |>
+  select(
+    file_prefix,
+    global_cell_number,
+    Record,
+    event_type,
+    record_date,
+    broad_type,
+    narrow_type,
+    Cell
+  ) |>
+  distinct(file_prefix,.keep_all = TRUE)
+
+
+View(df_selected)
+
+
+MI_avg_joined <- MI_avg |>
+  left_join(df_selected, by = c("file_prefix")
+  )
+    
+View(MI_avg_joined)
+
+# save
+write.csv(MI_avg_joined,"C:/Users/silic/Desktop/MI_avg_joined.csv",row.names = FALSE)
+
+# ensure data type
+
+MI_avg_joined$narrow_type <- as.factor(MI_avg_joined$narrow_type)
+MI_avg_joined$broad_type <- as.factor(MI_avg_joined$broad_type)
+MI_avg_joined$record_date <- as.factor(MI_avg_joined$record_date)
+
+MI_avg_joined$Cell <- as.factor(MI_avg_joined$Cell)
+
+MI_avg_joined$global_cell_number <- as.factor(MI_avg_joined$global_cell_number)
+MI_avg_joined$event_type <- as.factor(MI_avg_joined$event_type)
+MI_avg_joined$file_prefix <- as.factor(MI_avg_joined$file_prefix)
+
+
+
+MI_avg_joined$scaled_freq <- ((MI_avg_joined$mean_MI_freq) +1 )/2
+MI_avg_joined$scaled_median_amp <- ((MI_avg_joined$MI_median_amp) +1 )/2
+MI_avg_joined$scaled_mean_amp <- ((MI_avg_joined$MI_mean_amp) +1 )/2
+
+
+library(lme4)
+library(lmerTest)
+library(glmmTMB)
+
+# frequency
+
+# m2 wins
+
+
+null_model <- glmmTMB(scaled_freq ~ 1 + 
+                              (1 | global_cell_number),
+  family = beta_family(link = "logit"),
+  data = MI_avg_joined
+)
+
+
+
+m1a <- glmmTMB(scaled_freq ~ event_type + 
+                              (1 | global_cell_number),
+  family = beta_family(link = "logit"),
+  data = MI_avg_joined
+)
+
+
+m1b  <- glmmTMB(scaled_freq ~ narrow_type,
+  family = beta_family(link = "logit"),
+  data = MI_avg_joined
+)
+
+m2 <- glmmTMB(scaled_freq ~ narrow_type + 
+                              event_type + 
+                              (1 | global_cell_number),
+  family = beta_family(link = "logit"),
+  data = MI_avg_joined
+)
+
+
+m3 <- glmmTMB(scaled_freq ~ narrow_type + 
+                              event_type + 
+                              narrow_type * event_type + 
+                              (1 | global_cell_number),
+  family = beta_family(link = "logit"),
+  data = MI_avg_joined
+)
+
+anova(m3, m2)   # df = 6
+b <- 2*(logLik(m3)[1] - logLik(m2)[1])
+1 - pchisq(b, 6) # 0.1915
+# m2 better than m3
+
+anova(m2, m1a)   # df = 2
+b <- 2*(logLik(m2)[1] - logLik(m1a)[1])
+1 - pchisq(b, 6) # 0.00509
+# m2 is better than m1a
+
+anova(m2, m1b)   # df = 2
+b <- 2*(logLik(m2)[1] - logLik(m1a)[1])
+1 - pchisq(b, 2) # 0.59 e-5
+# m2 is better than m1b
+
+
+####
+
+
+# median
+# m1b wins
+m1a_median <- glmmTMB(scaled_median_amp ~ event_type +
+                              (1 | global_cell_number),
+  family = beta_family(link = "logit"),
+  data = MI_avg_joined
+)
+
+m1b_median <- glmmTMB(scaled_median_amp ~ narrow_type +
+                              (1 | global_cell_number),
+  family = beta_family(link = "logit"),
+  data = MI_avg_joined
+)
+summary(m1b_median)
+
+
+m2_median <- glmmTMB(scaled_median_amp ~ narrow_type + 
+                              event_type + 
+                              (1 | global_cell_number),
+  family = beta_family(link = "logit"),
+  data = MI_avg_joined
+)
+
+
+m3_median <- glmmTMB(scaled_median_amp ~ narrow_type + 
+                              event_type + 
+                              narrow_type * event_type + 
+                              (1 | global_cell_number),
+  family = beta_family(link = "logit"),
+  data = MI_avg_joined
+)
+
+anova(m3_median, m2_median)   # df = 6
+b <- 2*(logLik(m3_median)[1] - logLik(m2_median)[1])
+1 - pchisq(b, 6) # 0.195
+# m2 better than m3
+
+anova(m2_median, m1b_median)   # df = 1
+b <- 2*(logLik(m2_median)[1] - logLik(m1b_median)[1])
+1 - pchisq(b, 1) # 0.09
+# m1b better than m2
+
+anova(m2_median, m1a_median)   # df = 6
+b <- 2*(logLik(m2_median)[1] - logLik(m1a_median)[1])
+1 - pchisq(b, 6) # 0.04
+# m2 better than m1a
+
+
+
+# m1b wins
+null_mean <- glmmTMB(scaled_mean_amp ~ 1 +
+                              (1 | global_cell_number),
+  family = beta_family(link = "logit"),
+  data = MI_avg_joined
+)
+
+
+m1a_mean <- glmmTMB(scaled_mean_amp ~event_type +
+                              (1 | global_cell_number),
+  family = beta_family(link = "logit"),
+  data = MI_avg_joined
+)
+
+
+m1b_mean <- glmmTMB(scaled_mean_amp ~ narrow_type +
+                              (1 | global_cell_number),
+  family = beta_family(link = "logit"),
+  data = MI_avg_joined
+)
+
+
+m2_mean <- glmmTMB(scaled_mean_amp ~ narrow_type + 
+                              event_type +
+                              (1 | global_cell_number),
+  family = beta_family(link = "logit"),
+  data = MI_avg_joined
+)
+
+
+m3_mean <- glmmTMB(scaled_mean_amp ~ narrow_type + 
+                              event_type + 
+                              narrow_type * event_type + 
+                              (1 | global_cell_number),
+  family = beta_family(link = "logit"),
+  data = MI_avg_joined
+)
+summary(m3_mean)
+
+anova(m3_mean, m2_mean)   # df = 6
+b <- 2*(logLik(m3_mean)[1] - logLik(m2_mean)[1])
+1 - pchisq(b, 6) # 0.2449
+# m2 better than m3
+
+anova(m2_mean, m1b_mean)   # df = 1
+b <- 2*(logLik(m2_mean)[1] - logLik(m1b_mean)[1])
+1 - pchisq(b, 1) # 0.88
+# m1b better than m2
+
+anova(m2_mean, m1a_mean)   # df = 1
+b <- 2*(logLik(m2_mean)[1] - logLik(m1a_mean)[1])
+1 - pchisq(b, 6) # 0.0134
+# m2 better than m1a
+
+
+anova(m1b_mean, null_mean)   # df = 1
+b <- 2*(logLik(m1b_mean)[1] - logLik(null_mean)[1])
+1 - pchisq(b, 6) # 0.01355
+# m2 better than m1a
+
+
+
+# three winnning models:
+m1b_median <- glmmTMB(scaled_median_amp ~ narrow_type +
+                              (1 | global_cell_number),
+  family = beta_family(link = "logit"),
+  data = MI_avg_joined
+)
+
+summary(m1b_median)
+m1b_mean <- glmmTMB(scaled_mean_amp ~ narrow_type +
+                              (1 | global_cell_number),
+  family = beta_family(link = "logit"),
+  data = MI_avg_joined
+)
+summary(m1b_mean)
+m2 <- glmmTMB(scaled_freq ~ narrow_type + 
+                              event_type + 
+                              (1 | record_date),
+  family = beta_family(link = "logit"),
+  data = MI_avg_joined
+)
+summary(m2)
+
+```
+
+
+```{r}
+####################################################################
+## section 1: correct narrow type, changes from cold to cold pain ## ####################################################################
+
+# df cell 26 and 27, it seems the narrow type definition was wrong
+df$narrow_type[df$narrow_type == "cold"] <- "cold_pain"
+
+# save
+#write.csv(df,"C:/Users/silic/Desktop/df_v5.csv",row.names = FALSE)
+```
+
+```{r}
+
+
+# this list has 33 cell number that i want to keep
+# 9,12,13,15-18,20,21,23-30,33,35,37-43,45-51
+cell_list_keep <- df_complete_stim_coverage_ipsc$global_cell_number
+
+# df originally has 130241 rows
+df_keep <- df[df$global_cell_number %in% cell_list_keep,] 
+# df_keep now have 112534 rows
+
+# now can rename global cell number
+df_keep <- df_keep |>
+  mutate(
+    cell_number = dense_rank(global_cell_number)
+  )
+
+View(df_keep)
+# save
+#write.csv(df_keep,"C:/Users/silic/Desktop/df_keep.csv",row.names = FALSE)
+
+# now select only the recording that has three type, i dont want to do 6 subtypes
+
+df_keep_inn <- df_keep[!df_keep$narrow_type %in% "warm_innocuous",] 
+df_keep_inn <- df_keep_inn[!df_keep_inn$narrow_type %in% "mech_innocuous",] 
+df_keep_inn <- df_keep_inn[!df_keep_inn$narrow_type %in% "cold_innocuous",] 
+
+summary(df_keep_inn) # 103395 rows  in my event table
+
+#write.csv(df_keep_inn,"C:/Users/silic/Desktop/df_keep_inn.csv",row.names = FALSE)
+
+df_keep_inn$file_prefix <- as.factor(df_keep_inn$file_prefix)
+df_keep_inn$category <- as.factor(df_keep_inn$category)
+summary(df_keep_inn)
+
+df_keep_inn$force <- as.factor(df_keep_inn$force)
+df_keep_inn$temp <- as.factor(df_keep_inn$temp)
+df_keep_inn$cell_number <- as.factor(df_keep_inn$cell_number)
+
+df_keep_inn$record_date <- as.factor(df_keep_inn$record_date)
+
+df_keep_inn$recording_number <- as.factor(df_keep_inn$recording_number)
+
+unique(df_keep_inn$record_date)
+# 17 animals
+
+
+cell_count_by_date <- df_keep_inn |>
+  group_by(record_date) |>
+  summarise(
+    n_cells = n_distinct(cell_number),
+    .groups = "drop"
+  )
+
+#View(cell_count_by_date)
+
+
+recording_count <- df_keep_inn |>
+  group_by(record_date, cell_number) |>
+  summarise(
+    n_recordings = n_distinct(recording_number),
+    .groups = "drop"
+  )
+
+#View(recording_count)
+
+recording_event_type <- df_keep_inn |>
+  group_by(record_date, cell_number, recording_number) |>
+  summarise(
+    event_type = first(event_type),
+    .groups = "drop"
+  )
+
+#View(recording_event_type)
+
+recording_event_count <- recording_event_type |>
+  group_by(record_date, cell_number, event_type) |>
+  summarise(
+    n_recordings = n_distinct(recording_number),
+    .groups = "drop"
+  )
+
+#View(recording_event_count)
+
+#write.csv(recording_event_count,"C:/Users/silic/Desktop/recording_event_count.csv",row.names = FALSE)
+
+
+# find unique narrow type, same rationale
+recording_narrow_type <- df_keep_inn |>
+  group_by(record_date, cell_number, recording_number) |>
+  summarise(
+    stimulus = first(narrow_type),
+    .groups = "drop"
+  )
+
+#View(recording_narrow_type)
+
+
+recording_type_count <- recording_narrow_type |>
+  group_by(record_date, cell_number, stimulus) |>
+  summarise(
+    n_recordings = n_distinct(recording_number),
+    .groups = "drop"
+  )
+
+#View(recording_type_count)
+
+#write.csv(recording_type_count,"C:/Users/silic/Desktop/recording_type_count.csv",row.names = FALSE)
+
+
+```
+
+
+
+
+```{r}
+### 4. For each cell, get the set of distinct narrow_types it has
+#df_narrow_type_coverage <-df  |>
+#  group_by(global_cell_number) |>
+#  summarise(
+#    n_narrow_types = n_distinct(narrow_type),
+#    narrow_types_present = paste(sort(unique(narrow_type)), collapse = ", "),
+#    .groups = "drop"
+#  )
+
+
+
+# save
+#write.csv(df_narrow_type_coverage,"C:/Users/silic/Desktop/df_narrow_type_coverage.csv",row.names = FALSE)
+
+#View(df_narrow_type_coverage)
+
+
+df$narrow_type <- as.factor(df$narrow_type)
+df$event_type <- as.factor(df$event_type)
+
+#df_epsc <- df[df$event_type %in% "-70",]
+#summary(df_epsc)
+
+
+#df_narrow_type_coverage_epsc <- df_epsc  |>
+#  group_by(global_cell_number) |>
+#  summarise(
+#    n_narrow_types = n_distinct(narrow_type),
+#    narrow_types_present = paste(sort(unique(narrow_type)), collapse = ", "),
+#    .groups = "drop"
+#  )
+
+#View(df_narrow_type_coverage_epsc)
+
+
+#df_narrow_type_coverage_epsc <- #df_narrow_type_coverage_epsc[df_narrow_type_coverage_epsc$n_narrow_types >=3,]
+
+#df_narrow_type_coverage_epsc <- #df_narrow_type_coverage_epsc[!df_narrow_type_coverage_epsc$global_cell_number %in% 32,]
+
+
+# 39 cells
+
+# can go rename cell number column
+
+
+# select df data that has these global cell number first (the cell in epsc complete group)
+df_complete_stim <- df[df$global_cell_number %in% df_narrow_type_coverage_epsc$global_cell_number,]
+
+# order for visibility
+#df_complete_stim <- df_complete_stim |>
+#  arrange(global_cell_number)
+
+###
+# cell number 2,10, 19, 36,44 has enough for EPSC complete 3 stimulation per cell,
+# cold pain, mech pain, and heat pain
+# but they dont have enough data for IPSC
+# so need exclude
+
+
+
+
+
+
+
+```
+
+
+```{r}
+# count the narrow type balance for ipsc first, just in case
+df_ipsc <- df[df$event_type %in% "0",]
+
+df_narrow_type_coverage_ipsc <-df_ipsc  |>
+  group_by(global_cell_number) |>
+  summarise(
+    n_narrow_types = n_distinct(narrow_type),
+    narrow_types_present = paste(sort(unique(narrow_type)), collapse = ", "),
+    .groups = "drop"
+  )
+
+View(df_narrow_type_coverage_epsc)
+```
+
+
+```{r}
+
+```
+
+
+```{r}
+View(df)
+# df is an event table overall for all events, with pre_or_post column
+# with amplitude raw value column
+# with broad type and narrow type column, event type column
+# with global cell number column, with record date column
+
+## see balance of the dataset before I do any analysis, to find sample size
+## this df will include all recording that was later excluded just because the sd was NA/ or too few baseline event to calcualte sd,or no firing at all during stimulation, these were both discarded previously
+
+# but before I dscarded, I want to know it 
+
+# and also knowing the balance of dataset, i can simply drop the data
+# then standardize the response subtypes
+# stating what the sample size of the data, what stimulus was applied consistently, especially for EPSC classification
+# three stimulus has to be applpied in every cell consistently
+```
+
+
+```{r}
+unique(df_keep_inn$file_prefix) # 470 recordings
+```
+
+
+```{r}
+#df_v4 <-read.csv("C:/Users/silic/Desktop/df_v4.csv")
+#View(df_v4) # 130241
+
+
+#df <- df_v3
+
+df <- df_keep_inn
+
+### 1. Count how many Records exist per file_prefix 
+records_per_file <- df |>
+  group_by(file_prefix) |>
+  summarise(n_records = n_distinct(Record), .groups = "drop")
+
+
+### 2. Get stim_period_duration per file 
+stim_duration_per_file <- df |>
+  group_by(file_prefix) |>
+  summarise(stim_period_duration = first(stim_period_duration), .groups = "drop")
+
+#View(df)
+
+### 3. Pooled event counts per file_prefix / event_type / pre_or_post
+summary_df <- df |>
+  group_by(file_prefix, pre_or_post) |>
+  summarise(
+    n_events   = n(),
+    mean_amp   = mean(amplitude_raw, na.rm = TRUE),
+    median_amp = median(amplitude_raw, na.rm = TRUE),
+    mad_amp    = mad(amplitude_raw, na.rm = TRUE),
+    sd_amp     = sd(amplitude_raw, na.rm = TRUE),
+    sem_amp    = sd(amplitude_raw, na.rm = TRUE) / sqrt(n_events),
+    .groups = "drop"
+  ) |>
+  left_join(records_per_file, by = "file_prefix") |>
+  left_join(stim_duration_per_file, by = "file_prefix") |>
+  mutate(
+    duration = if_else(pre_or_post == "pre", 5 * n_records, stim_period_duration * n_records),
+    freq = n_events / duration
+  )
+
+
+
+summary_df_sorted_correct <- summary_df |>
+  arrange(n_events)
+
+View(summary_df_sorted_correct)
+
+# print the file number that has na in its sd of ampltidue
+summary_df |> 
+  filter(is.na(sd_amp)) |>
+  select(file_prefix)
+
+#2023_08_23_0036				
+#2023_12_20_0012				
+#2026_01_22_0019
+
+
+recording_na_sd <- c( "2023_08_23_0036", 
+                     "2023_12_20_0012",
+                     "2026_01_22_0019")
+
+```
+
+
+```{r}
+#recording_na_sd <- c("2023_08_10_0026", 
+#                     "2023_08_23_0036", 
+#                     "2023_12_20_0012","2026_01_22_0019",
+#                     "2026_04_16_0027")
+
+# deleted all the na in sd amplitude
+summary_df_sorted_correct_no_na <- summary_df_sorted_correct |> 
+  filter(!file_prefix %in% recording_na_sd) 
+
+#View(summary_df_sorted_correct_no_na)
+#summary(summary_df_sorted_correct_no_na)
+
+
+
+df_keep_inn # 103395 rows
+####
+# try calculate frequency 1s bin for baseline period, such that I can calculate the sd of baseline
+
+# drop those sd amp na first
+df <- df[!df$file_prefix %in% recording_na_sd,]
+# 103351 rows
+
+
+
+pre_bins <- df |>
+  filter(!is.na(amplitude), pre_or_post == "pre") |>
+  mutate(
+    bin = case_when(
+      event_time >= baseline_start + 0 & event_time < baseline_start + 1 ~ 0,
+      event_time >= baseline_start + 1 & event_time < baseline_start + 2 ~ 1,
+      event_time >= baseline_start + 2 & event_time < baseline_start + 3 ~ 2,
+      event_time >= baseline_start + 3 & event_time < baseline_start + 4 ~ 3,
+      event_time >= baseline_start + 4 & event_time < baseline_start + 5 ~ 4,
+      TRUE ~ NA_real_
+    )
+  ) |>
+  filter(!is.na(bin)) |>
+  group_by(file_prefix, event_type, bin) |>
+  summarise(n_events_in_bin = n(), .groups = "drop") |>
+  group_by(file_prefix, event_type) |>
+  complete(bin = 0:4, fill = list(n_events_in_bin = 0)) |>
+  left_join(records_per_file, by = "file_prefix") |>          # <- bring in n_records per file
+  mutate(freq_hz_in_bin = n_events_in_bin / n_records) |>      # <- scale by number of Records pooled
+  summarise(
+    mean_pre_freq = mean(freq_hz_in_bin),
+    sd_pre_freq   = sd(freq_hz_in_bin),
+    .groups = "drop"
+  )
+
+View(pre_bins)
+
+
+```
+
+
+```{r}
+# get the pre sitmn sd
+
+summary_df_sorted_correct_no_na <- summary_df_sorted_correct_no_na |>
+  left_join(
+    pre_bins |> select(file_prefix, sd_pre_freq),
+    by = "file_prefix"
+  )
+
+summary(summary_df_sorted_correct_no_na)
+# no na in sd pre frequency!!!
+```
+
+
+```{r}
+summary_df_sorted_correct_no_na |> 
+  filter(is.na(sd_pre_freq)) |>
+  select(file_prefix)
+```
+
+
+```{r}
+#exclude <- c("2023_08_10_0026", "2023_08_23_0036",
+#  "2023_08_23_0036","2023_12_20_0012","2023_12_20_0012",
+#  "2026_01_22_0019","2026_01_22_0019","2026_04_16_0027",
+#  "2026_04_16_0027")
+
+#summary_df_no_na <- summary_df[!summary_df$file_prefix %in% exclude ,]
+
+
+### calculate z score
+
+z_scores <- summary_df_sorted_correct_no_na |>
+  select(file_prefix, pre_or_post, freq, 
+         mean_amp, sd_amp, median_amp, mad_amp, sd_pre_freq) |>
+  pivot_wider(
+    names_from = pre_or_post,
+    values_from = c(freq, mean_amp, sd_amp, median_amp, mad_amp)
+  ) |>
+  mutate(
+    z_score_freq        = (freq_post - freq_pre) / sd_pre_freq,
+    z_score_amp_robust   = (median_amp_post - median_amp_pre) / mad_amp_pre,
+    z_score_amp_standard = (mean_amp_post - mean_amp_pre) / sd_amp_pre
+  )
+
+
+
+z_scores <- z_scores |>
+  left_join(
+    df |> distinct(file_prefix, 
+                             global_cell_number, 
+                             broad_type, 
+                             narrow_type, event_type, cell_number),
+    by = "file_prefix"
+  )
+
+
+## try see group of narrow type repetiiton
+z_scores |>
+  group_by(cell_number, narrow_type, event_type) |>
+  summarise(n_rows = n(), .groups = "drop")
+
+View(z_scores)
+
+
+# try average z score
+z_scores_avg <- z_scores |>
+  group_by(cell_number, narrow_type, event_type) |>
+  summarise(
+    mean_z_score_freq         = mean(z_score_freq, na.rm = TRUE),
+    mean_z_score_amp_standard = mean(z_score_amp_standard, na.rm = TRUE),
+    mean_z_score_amp_robust   = mean(z_score_amp_robust, na.rm = TRUE),
+    n_recordings              = n(),
+    .groups = "drop"
+  )
+
+
+View(z_scores_avg)
+#View(z_score_epsc)
+
+z_score_epsc <- z_scores_avg[z_scores_avg$event_type %in% -70,]
+
+z_score_ipsc <- z_scores_avg[z_scores_avg$event_type %in% 0,]
+
+# save
+write.csv(z_score_epsc,"C:/Users/silic/Desktop/z_score_epsc.csv",row.names = FALSE)
+write.csv(z_score_ipsc,"C:/Users/silic/Desktop/z_score_ipsc.csv",row.names = FALSE)
+
+summary(z_score_ipsc) # no na
+```
+
+
+```{r}
+z_score_epsc <- z_scores_avg[z_scores_avg$event_type %in% -70,]
+
+z_score_ipsc <- z_scores_avg[z_scores_avg$event_type %in% 0,]
+
+
+cell_narrow_type_coverage_ipsc <- z_score_ipsc  |>
+  group_by(cell_number) |>
+  summarise(
+    n_narrow_types = n_distinct(narrow_type),
+    narrow_types_present = paste(sort(unique(narrow_type)), collapse = ", "),
+    .groups = "drop"
+  )
+
+
+View(cell_narrow_type_coverage_ipsc)
+
+# cell 1 and cell 3 ipsc no longer has mechanical pain stimulus recording, since the recording was probably excluded due to na in sd amplitude...
+
+# so exclude cell 1 and cell 3 data
+
+z_scores_avg <- z_scores_avg[!z_scores_avg$cell_number %in% 3,] # 196 to 191
+z_scores_avg <- z_scores_avg[!z_scores_avg$cell_number %in% 1,] # 191 to 186
+
+View(z_scores_avg)
+
+
+z_score_epsc <- z_scores_avg[z_scores_avg$event_type %in% -70,]
+
+z_score_ipsc <- z_scores_avg[z_scores_avg$event_type %in% 0,]
+
+
+cell_narrow_type_coverage_epsc <- z_score_epsc  |>
+  group_by(cell_number) |>
+  summarise(
+    n_narrow_types = n_distinct(narrow_type),
+    narrow_types_present = paste(sort(unique(narrow_type)), collapse = ", "),
+    .groups = "drop"
+  )
+
+
+View(cell_narrow_type_coverage_epsc)
+
+View(z_score_epsc)
+
+# cell 15,16,18, cold, mech, cold, -3.295663, -3.890345, -3.283131
+z_score_epsc_respond <- z_score_epsc[abs(z_score_epsc$mean_z_score_freq) >=3,]
+View(z_score_epsc_respond)
+
+# 0 observation has sd mean amp >=3
+z_score_epsc_respond_amp_mean <- z_score_epsc[abs(z_score_epsc$mean_z_score_amp_standard) >=3,]
+#View(z_score_epsc_respond_amp_mean)
+
+
+# cell 25, mech pain, -70mV, -3.727448 for amp median
+z_score_epsc_respond_amp_median <- z_score_epsc[abs(z_score_epsc$mean_z_score_amp_robust) >=3,]
+#View(z_score_epsc_respond_amp_median)
+
+
+### see ipsc who passed
+z_score_ipsc_respond <- z_score_ipsc[abs(z_score_ipsc$mean_z_score_freq) >=3,]
+View(z_score_ipsc_respond)
+# cell 7, cell 13, mech, heat, -3.136606, 3.801316
+
+# 0 observation has sd mean amp >=3
+z_score_ipsc_respond_amp_mean <- z_score_ipsc[abs(z_score_ipsc$mean_z_score_amp_standard) >=3,]
+#View(z_score_ipsc_respond_amp_mean)
+
+# 0 observation has sd median amp >=3
+z_score_ipsc_respond_amp_median <- z_score_ipsc[abs(z_score_ipsc$mean_z_score_amp_robust) >=3,]
+#View(z_score_ipsc_respond_amp_median)
+
+
+
+### cell 15, 16, 18 frequency
+freq_cell <- c("15", "16", "18")
+z_score_epsc_responders <- z_scores_avg[z_scores_avg$cell_number %in% freq_cell,]
+View(z_score_epsc_responders)
+
+
+
+#df_v4 <-read.csv("C:/Users/silic/Desktop/df_v4.csv")
+#names(df_v4)
+#View(df_v4) # 130241
+
+
+
+#df <- df_v3
+
+#summary_df <- df |>
+#  group_by(file_prefix, event_type, pre_or_post) |>
+#  summarise(
+#    n_events = n(),
+#    duration = if (first(pre_or_post) == "pre") {5} else #{first(stim_period_duration)},
+#    mean_amp = mean(amplitude, na.rm = TRUE),
+#    median_amp = median(amplitude, na.rm = TRUE),
+#    .groups = "drop"
+#  ) 
+
+
+
+# separate recording that has fewer than 1fire per seconds (less than 5 events in baseline, less than 1 event in 1s in stim period)
+#separate_anlayse_rec <- c("2026_01_13_0031",
+#                          "2023_08_10_0026",
+#                          "2026_04_16_0027",
+#                          "2026_01_22_0019",
+#                          "2023_12_20_0012",
+#                          "2023_08_23_0036")
+
+#df_separated_v2 <- df[!df$file_prefix %in% separate_anlayse_rec,] #522920
+
+
+#View(df_separated_v2) # 130192
+
+names(df)
+
+
+### 1. Count how many Records exist per file_prefix 
+records_per_file <- df |>
+  group_by(file_prefix) |>
+  summarise(n_records = n_distinct(Record), .groups = "drop")
+
+View(records_per_file)
+
+### 2. Get stim_period_duration per file 
+stim_duration_per_file <- df |>
+  group_by(file_prefix) |>
+  summarise(stim_period_duration = first(stim_period_duration), .groups = "drop")
+
+View(stim_duration_per_file)
+
+
+View(df)
+
+### 3. Pooled event counts per file_prefix / event_type / pre_or_post
+summary_df <- df |>
+  group_by(file_prefix, pre_or_post) |>
+  summarise(
+    n_events   = n(),
+    mean_amp   = mean(amplitude_raw, na.rm = TRUE),
+    median_amp = median(amplitude_raw, na.rm = TRUE),
+    mad_amp    = mad(amplitude_raw, na.rm = TRUE),
+    sd_amp     = sd(amplitude_raw, na.rm = TRUE),
+    sem_amp    = sd(amplitude_raw, na.rm = TRUE) / sqrt(n_events),
+    .groups = "drop"
+  ) |>
+  left_join(records_per_file, by = "file_prefix") |>
+  left_join(stim_duration_per_file, by = "file_prefix") |>
+  mutate(
+    duration = if_else(pre_or_post == "pre", 5 * n_records, stim_period_duration * n_records),
+    freq = n_events / duration
+  )
+
+
+
+summary_df_sorted_correct <- summary_df |>
+  arrange(n_events)
+
+View(summary_df_sorted_correct)
+
+# save
+write.csv(summary_df_sorted_correct,"C:/Users/silic/Desktop/summary_df_sorted_correct.csv",row.names = FALSE)
+
+
+summary_df |> 
+  filter(is.na(sd_amp)) |>
+  select(file_prefix)
+
+#2023_08_10_0026				
+#2023_08_23_0036				
+#2023_12_20_0012				
+#2026_01_22_0019				
+#2026_04_16_0027	
+
+# exclude recording with NA sd
+
+recording_na_sd <- c("2023_08_10_0026", 
+                     "2023_08_23_0036", 
+                     "2023_12_20_0012","2026_01_22_0019",
+                     "2026_04_16_0027")
+
+
+summary_df_sorted_correct_no_na <- summary_df_sorted_correct |> 
+  filter(!file_prefix %in% recording_na_sd) 
+
+
+# save
+write.csv(summary_df_sorted_correct_no_na,
+          "C:/Users/silic/Desktop/summary_df_sorted_correct_no_na.csv",
+          row.names = FALSE)
+
+
+#########
+
+
+####
+# try calculate frequency 1s bin for baseline period, such that I can calculate the sd of baseline
+
+# drop those sd amp na first
+df <- df[!df$file_prefix %in% recording_na_sd,]
+# 130192
+
+
+pre_bins <- df |>
+  filter(!is.na(amplitude), pre_or_post == "pre") |>
+  mutate(
+    bin = case_when(
+      event_time >= baseline_start + 0 & event_time < baseline_start + 1 ~ 0,
+      event_time >= baseline_start + 1 & event_time < baseline_start + 2 ~ 1,
+      event_time >= baseline_start + 2 & event_time < baseline_start + 3 ~ 2,
+      event_time >= baseline_start + 3 & event_time < baseline_start + 4 ~ 3,
+      event_time >= baseline_start + 4 & event_time < baseline_start + 5 ~ 4,
+      TRUE ~ NA_real_
+    )
+  ) |>
+  filter(!is.na(bin)) |>
+  group_by(file_prefix, event_type, bin) |>
+  summarise(n_events_in_bin = n(), .groups = "drop") |>
+  group_by(file_prefix, event_type) |>
+  complete(bin = 0:4, fill = list(n_events_in_bin = 0)) |>
+  left_join(records_per_file, by = "file_prefix") |>          # <- bring in n_records per file
+  mutate(freq_hz_in_bin = n_events_in_bin / n_records) |>      # <- scale by number of Records pooled
+  summarise(
+    mean_pre_freq = mean(freq_hz_in_bin),
+    sd_pre_freq   = sd(freq_hz_in_bin),
+    .groups = "drop"
+  )
+
+# save
+write.csv(pre_bins,"C:/Users/silic/Desktop/pre_bins_correct.csv",row.names = FALSE)
+
+# get the pre sitmn sd
+
+View(summary_df)
+
+summary_df <- summary_df |>
+  left_join(
+    pre_bins |> select(file_prefix, sd_pre_freq),
+    by = "file_prefix"
+  )
+
+
+##
+summary_df |> 
+  filter(is.na(sd_pre_freq)) |>
+  select(file_prefix)
+
+exclude <- c("2023_08_10_0026", "2023_08_23_0036",
+  "2023_08_23_0036","2023_12_20_0012","2023_12_20_0012",
+  "2026_01_22_0019","2026_01_22_0019","2026_04_16_0027",
+  "2026_04_16_0027")
+
+View(summary_df_no_na) 
+
+summary_df_no_na <- summary_df[!summary_df$file_prefix %in% exclude ,]
+# 939 to 930
+
+# save
+write.csv(summary_df_no_na,"C:/Users/silic/Desktop/summary_df_no_na.csv",row.names = FALSE)
+
+###
+
+### calculate z score
+
+z_scores <- summary_df_no_na |>
+  select(file_prefix, pre_or_post, freq, 
+         mean_amp, sd_amp, median_amp, mad_amp, sd_pre_freq) |>
+  pivot_wider(
+    names_from = pre_or_post,
+    values_from = c(freq, mean_amp, sd_amp, median_amp, mad_amp)
+  ) |>
+  mutate(
+    z_score_freq        = (freq_post - freq_pre) / sd_pre_freq,
+    z_score_amp_robust   = (median_amp_post - median_amp_pre) / mad_amp_pre,
+    z_score_amp_standard = (mean_amp_post - mean_amp_pre) / sd_amp_pre
+  )
+
+
+View(z_scores)
+
+
+# save
+write.csv(z_scores,"C:/Users/silic/Desktop/z_scores_all_correct.csv",row.names = FALSE)
+
+
+
+###############
+z_scores <- z_scores |>
+  left_join(
+    df |> distinct(file_prefix, 
+                             global_cell_number, 
+                             broad_type, 
+                             narrow_type, event_type),
+    by = "file_prefix"
+  )
+
+View(z_scores)
+
+# save
+write.csv(z_scores,"C:/Users/silic/Desktop/z_scores_all_final_version.csv",row.names = FALSE)
+####
+
+z_scores <- read.csv("C:/Users/silic/Desktop/z_scores_all_final_version.csv")
+
+## try see group of narrow type repetiiton
+z_scores |>
+  group_by(global_cell_number, narrow_type, event_type) |>
+  summarise(n_rows = n(), .groups = "drop")
+
+# try average z score
+z_scores_avg <- z_scores |>
+  group_by(global_cell_number, narrow_type, event_type) |>
+  summarise(
+    mean_z_score_freq         = mean(z_score_freq, na.rm = TRUE),
+    mean_z_score_amp_standard = mean(z_score_amp_standard, na.rm = TRUE),
+    mean_z_score_amp_robust   = mean(z_score_amp_robust, na.rm = TRUE),
+    n_recordings              = n(),
+    .groups = "drop"
+  )
+
+
+View(z_scores_avg)
+#View(z_score_epsc)
+
+z_score_epsc <- z_scores_avg[z_scores_avg$event_type %in% -70,]
+
+z_score_ipsc <- z_scores_avg[z_scores_avg$event_type %in% 0,]
+
+# save
+write.csv(z_score_epsc,"C:/Users/silic/Desktop/z_score_epsc.csv",row.names = FALSE)
+write.csv(z_score_ipsc,"C:/Users/silic/Desktop/z_score_ipsc.csv",row.names = FALSE)
+
+
+
+#z_score_group <- z_score_epsc |>
+#  group_by(global_cell_number) |>
+#  summarise(n_rows = n(), .groups = "drop")
+
+#z_score_group <- z_score_group |> 
+#  arrange(n_rows)
+
+#View(z_score_group)
+
+
+## see balance of the dataset before I classify
+### 4. For each cell, get the set of distinct narrow_types it has
+cell_narrow_type_coverage_ipsc <- z_score_ipsc  |>
+  group_by(global_cell_number) |>
+  summarise(
+    n_narrow_types = n_distinct(narrow_type),
+    narrow_types_present = paste(sort(unique(narrow_type)), collapse = ", "),
+    .groups = "drop"
+  )
+
+#View(cell_narrow_type_coverage_ipsc)
+
+### 5. Balance summary: how many cells have 1 narrow_type, 2, ..., all 6
+cell_narrow_type_coverage_ipsc <- cell_narrow_type_coverage_ipsc |>
+  arrange(n_narrow_types)
+
+
+# filter narrow type >= 3
+cell_narrow_type_coverage_ipsc <- cell_narrow_type_coverage_ipsc[cell_narrow_type_coverage_ipsc$n_narrow_types>=3,]
+
+#View(cell_narrow_type_coverage_ipsc)
+
+
+# cell 2  (filter only those cell that has three types of therm, mech, heat, cold)
+cell_narrow_type_coverage_ipsc <- cell_narrow_type_coverage_ipsc[!cell_narrow_type_coverage_ipsc$global_cell_number==2,]
+
+
+
+# (26,27 does not have cold pain) # exclude for now, anlayse later
+cell_narrow_type_coverage_ipsc <- cell_narrow_type_coverage_ipsc[!cell_narrow_type_coverage_ipsc$global_cell_number==26,]
+
+cell_narrow_type_coverage_ipsc <- cell_narrow_type_coverage_ipsc[!cell_narrow_type_coverage_ipsc$global_cell_number==27,]
+
+
+# save
+#write.csv(cell_narrow_type_coverage_ipsc,"C:/Users/silic/Desktop/cell_narrow_type_coverage_ipsc.csv",row.names = FALSE)
+
+###### now redo plot with correct z score
+
+# separate into three plots three facetr
+# filter narrow type >= 3
+cell_narrow_type_coverage_below3_ipsc <- cell_narrow_type_coverage_ipsc[cell_narrow_type_coverage_ipsc$n_narrow_types<=3,]
+
+z_score_ipsc_below3 <- z_score_ipsc[z_score_ipsc$global_cell_number %in% cell_narrow_type_coverage_below3_ipsc$global_cell_number,]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## see balance of the dataset before I classify
+### 4. For each cell, get the set of distinct narrow_types it has
+cell_narrow_type_coverage <- z_score_epsc  |>
+  group_by(global_cell_number) |>
+  summarise(
+    n_narrow_types = n_distinct(narrow_type),
+    narrow_types_present = paste(sort(unique(narrow_type)), collapse = ", "),
+    .groups = "drop"
+  )
+
+
+### 5. Balance summary: how many cells have 1 narrow_type, 2, ..., all 6
+cell_narrow_type_coverage <- cell_narrow_type_coverage |>
+  arrange(n_narrow_types)
+
+
+# filter narrow type >= 3
+cell_narrow_type_coverage <- cell_narrow_type_coverage[cell_narrow_type_coverage$n_narrow_types>=3,]
+# cell 4,6,7,8, 22,34,11,31
+
+#View(cell_narrow_type_coverage)
+
+# cell 32  (filter only those cell that has three types of therm, mech, heat, cold)
+cell_narrow_type_coverage <- cell_narrow_type_coverage[!cell_narrow_type_coverage$global_cell_number==32,]
+
+
+
+# (26,27 does not have cold pain) # exclude for now, anlayse later
+cell_narrow_type_coverage <- cell_narrow_type_coverage[!cell_narrow_type_coverage$global_cell_number==26,]
+
+cell_narrow_type_coverage <- cell_narrow_type_coverage[!cell_narrow_type_coverage$global_cell_number==27,]
+
+
+
+
+# save
+#write.csv(cell_narrow_type_coverage,"C:/Users/silic/Desktop/cell_narrow_type_coverage.csv",row.names = FALSE)
+
+###### now redo plot with correct z score
+
+# separate into three plots three facetr
+# filter narrow type >= 3
+cell_narrow_type_coverage_below3 <- cell_narrow_type_coverage[cell_narrow_type_coverage$n_narrow_types<=3,]
+
+z_score_epsc_below3 <- z_score_epsc[z_score_epsc$global_cell_number %in% cell_narrow_type_coverage_below3$global_cell_number,]
+
+
+
+####
+# change colour
+
+# Okabe-Ito colorblind-safe palette, named to match your narrow_types
+okabe_ito <- c(
+  "Noxious mechanical"  = "#009E73",  # bluish green
+  "Noxious heat"  = "#D55E00",  # vermillion
+  "Noxious cold"  = "#56B4E9"  # reddish purple
+)
+
+library(ggplot2)
+
+z_score_epsc_below3 <- z_score_epsc_below3 |>
+  mutate(narrow_type = recode(narrow_type,
+    "cold_pain" = "Noxious cold",
+    "heat_pain" = "Noxious heat",
+    "mech_pain" = "Noxious mechanical"
+  ))
+
+
+z_score_plot <- ggplot(z_score_epsc_below3, aes(x = narrow_type, y = mean_z_score_freq, color = narrow_type)) +
+  geom_line(aes(group = 1), color = "grey50", linewidth = 0.4) +
+  geom_point(size = 2.2, alpha = 0.9) +
+  geom_blank(aes(y = -3)) +          # invisible anchor at -3
+  geom_blank(aes(y = 3)) +           # invisible anchor at +3
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey40", linewidth = 0.4) +
+  facet_wrap(~ global_cell_number, ncol = 6, scales = "free_y") +
+  scale_color_manual(values = okabe_ito, drop = TRUE) +
+  theme_bw(base_size = 20) +
+  theme(
+    #axis.text.x = element_text(angle = 45, hjust = 1, size = 18, color = "black"),
+    legend.text = element_text(size = 19), 
+    axis.text.y = element_text(size = 19, color = "black"),
+    axis.title = element_text(size = 19, face = "plain"),
+    strip.background = element_rect(fill = "grey90", color = NA),
+    strip.text = element_text(size = 20, face = "plain"),
+    panel.grid.minor = element_blank(),
+    panel.grid.major.x = element_blank(),
+    legend.position = "bottom",
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 24),
+    panel.spacing = unit(0.6, "lines"),
+    axis.text = element_text(color = "black", size = 20),
+    axis.title.x = element_text(face = "plain", size = 19),
+    axis.title.y = element_text(face = "plain", size = 19),
+    axis.line = element_line(linewidth = 0.4),
+    axis.ticks = element_line(linewidth = 0.4),
+    axis.text.x = element_blank(),      # hide x-axis tick labels
+    axis.ticks.x = element_blank(),     # hide x-axis tick marks too
+  ) +
+  labs(x = "", y = "Z-score", color = "Stimulus type",
+       title = "Standardized scores of frequency of EPSC per cell")
+
+z_score_plot
+
+
+ggsave("C:/Users/silic/Desktop/z_score_plot_freq.png", 
+       plot = z_score_plot, width = 15, height = 10, dpi = 600)
+
+
+
+###
+
+# plot amplirude
+z_score_plot_amp <- ggplot(z_score_epsc_below3, aes(x = narrow_type, y = mean_z_score_amp_robust, color = narrow_type)) +
+  geom_line(aes(group = 1), color = "grey50", linewidth = 0.4) +
+  geom_point(size = 2.2, alpha = 0.9) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey40", linewidth = 0.4) +
+  facet_wrap(~ global_cell_number, ncol = 6, scales = "free_y") +
+  scale_color_manual(values = okabe_ito, drop = TRUE) +
+  theme_bw(base_size = 11) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 18, color = "black"),
+    axis.text.y = element_text(size = 13, color = "black"),
+    axis.title = element_text(size = 13, face = "bold"),
+    strip.background = element_rect(fill = "grey90", color = NA),
+    strip.text = element_text(size = 13, face = "bold"),
+    panel.grid.minor = element_blank(),
+    panel.grid.major.x = element_blank(),
+    legend.position = "bottom",
+    legend.title = element_text(size = 13, face = "bold"),
+    legend.text = element_text(size = 13),
+    plot.title = element_text(size = 20, face = "bold"),
+    panel.spacing = unit(0.6, "lines")
+  ) +
+  labs(x = "Stimulus type", y = "Z-score (amplitude)", color = "Stimulus type",
+       title = "Amplitude z-score by stimulus type per cell")+
+  theme(
+    legend.position = "none",
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 20),
+    axis.text = element_text(color = "black", size = 20),
+    axis.title = element_text(face = "plain", size = 20),
+    axis.line = element_line(linewidth = 0.4),
+    axis.ticks = element_line(linewidth = 0.4)
+  )
+
+ggsave("C:/Users/silic/Desktop/z_score_plot_amp.png", 
+       plot = z_score_plot_amp , width = 15, height = 10, dpi = 600)
+
+
+################
+
+
+library(lme4)
+library(lmerTest)   # adds p-values to lmer output, which base lme4 doesn't provide
+
+model_mixed <- lmer(mean_z_score_freq ~ narrow_type + (1|global_cell_number),
+                                                     data = z_score_epsc_below3)
+
+summary(model_mixed)
+anova(model_mixed)
+
+model_mixed <- lm(mean_z_score_freq ~ narrow_type,data = z_score_epsc_below3)
+
+summary(model_mixed)
+anova(model_mixed)
+
+###
+
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+
+### Step 1: reshape to wide format — one row per cell, one column per stimulus/narrow_type
+z_wide <- z_score_epsc_below3 |>
+  select(global_cell_number, narrow_type, mean_z_score_freq) |>
+  pivot_wider(names_from = narrow_type, values_from = mean_z_score_freq)
+
+nrow(z_wide)   # should equal your total number of cells now, no rows lost
+
+### Step 2: scale features (so no single stimulus dominates due to larger variance) and cluster
+features <- z_wide |> select(-global_cell_number) |> scale()
+
+dist_matrix <- dist(features, method = "euclidean")
+hc <- hclust(dist_matrix, method = "ward.D2")
+
+plot(hc, labels = z_wide$global_cell_number, main = "Cell clustering by z-score profile")
+
+#######################
+clusters_k2 <- cutree(hc, k = 2)
+clusters_k4 <- cutree(hc, k = 4)
+
+z_wide$cluster_k2 <- factor(clusters_k2)
+z_wide$cluster_k4 <- factor(clusters_k4)
+
+library(ggrepel)
+
+plot_data_freq <- z_score_epsc_below3 |>
+  left_join(z_wide |> select(global_cell_number, cluster_k4), by = "global_cell_number")
+
+plot_data_freq$narrow_type <- as.factor(plot_data_freq$narrow_type)
+
+# get just the last stimulus point per cell, to place the label there
+label_data <- plot_data_freq |>
+  group_by(global_cell_number) |>
+  filter(narrow_type == last(levels(narrow_type)))  # adjust if narrow_type isn't a factor with defined level order
+
+cluster_freq_labeled <- ggplot(plot_data_freq, aes(x = narrow_type, 
+                      y = mean_z_score_freq, 
+                      group = global_cell_number)) +
+  geom_line(alpha = 0.4, color = "grey40") +
+  geom_point(aes(color = narrow_type), size = 2) +
+  geom_text_repel(data = label_data, aes(label = global_cell_number), 
+                   size = 5, color = "black", max.overlaps = Inf, 
+                   segment.size = 0.2, segment.color = "grey60") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey50") +
+  facet_wrap(~ cluster_k4, scales = "free_y") +
+  theme_minimal() +
+  labs(x = "Stimulus", y = "Z-score (frequency)", title = "Frequency response profile by cluster")+
+  theme(
+    legend.position = "none",
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 20),
+    axis.text = element_text(color = "black", size = 20),
+    axis.title = element_text(face = "plain", size = 20),
+    axis.line = element_line(linewidth = 0.4),
+    axis.ticks = element_line(linewidth = 0.4)
+  )
+
+ggsave("C:/Users/silic/Desktop/cluster_freq_labeled.png", 
+       plot = cluster_freq_labeled, width = 15, height = 10, dpi = 600)
+
+
+# now get the cluster of frequenct, go ipsc
+
+z_wide |> 
+  select(global_cell_number, cluster_k4) |>
+  arrange(cluster_k4) |>
+  print(n = 50)
+
+
+
+z_score_ipsc_with_cluster <- z_score_ipsc_below3 |>
+  left_join(z_wide |> select(global_cell_number, cluster_k4), by = "global_cell_number")
+
+View(z_score_ipsc_with_cluster)
+
+z_score_ipsc_with_cluster_no_na <- z_score_ipsc_with_cluster |> filter(!is.na(cluster_k4))
+
+
+z_score_ipsc_with_cluster_no_na |> arrange(cluster_k4) |> select(global_cell_number, cluster_k4, everything())
+
+View(z_score_ipsc_with_cluster_no_na)
+
+z_score_ipsc_with_cluster_no_na_c1 <- z_score_ipsc_with_cluster_no_na[z_score_ipsc_with_cluster_no_na$cluster_k4 ==1,]
+
+z_score_ipsc_with_cluster_no_na_c3 <- z_score_ipsc_with_cluster_no_na[z_score_ipsc_with_cluster_no_na$cluster_k4 ==3,]
+
+z_score_ipsc_with_cluster_no_na_c4 <- z_score_ipsc_with_cluster_no_na[z_score_ipsc_with_cluster_no_na$cluster_k4 ==4,]
+
+
+View(z_score_ipsc_with_cluster_no_na_c3)
+
+library(ggplot2)
+
+plot_freq_c1 <- ggplot(z_score_ipsc_with_cluster_no_na_c1, aes(x = narrow_type, y = mean_z_score_freq, color = narrow_type)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.5) +
+  geom_jitter(width = 0.15, size = 3, alpha = 0.7) +
+  geom_text_repel(aes(label = global_cell_number), size = 5, color = "black", 
+                   max.overlaps = Inf, segment.size = 0.2, segment.color = "grey60") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey50") +
+  theme_minimal() +
+  coord_cartesian(ylim = c(-3,3)) +
+  scale_y_continuous(breaks = seq(-3, 3, by = 0.5))+
+  scale_x_discrete(labels = c(
+  "cold_pain" = "Noxious\n cold",
+  "heat_pain" = "Noxious\n heat",
+  "mech_pain" = "Noxious\n mechanical"))+
+  labs(x = "", y = "z-score of IPSC frequency", 
+       title = "Cluster 1")+
+  theme(
+    legend.position = "none",
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 20),
+    axis.text = element_text(color = "black", size = 18),
+    axis.title = element_text(face = "plain", size = 20),
+    axis.line = element_line(linewidth = 0.4),
+    axis.ticks = element_line(linewidth = 0.4)
+  )
+
+plot_freq_c1 
+
+
+ggsave("C:/Users/silic/Desktop/plot_freq_ipsc_c1.png", 
+       plot = plot_freq_c1, width = 8, height = 6, dpi = 600)
+
+
+
+###
+plot_freq_c3 <- ggplot(z_score_ipsc_with_cluster_no_na_c3, aes(x = narrow_type, y = mean_z_score_freq, color = narrow_type)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.5) +
+  geom_jitter(width = 0.15, size = 3, alpha = 0.7) +
+  geom_text_repel(aes(label = global_cell_number), size = 5, color = "black", 
+                   max.overlaps = Inf, segment.size = 0.2, segment.color = "grey60") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey50") +
+  theme_minimal() +
+  coord_cartesian(ylim = c(-3,3)) +
+  scale_y_continuous(breaks = seq(-3, 3, by = 0.5))+
+  scale_x_discrete(labels = c(
+  "cold_pain" = "Noxious\n cold",
+  "heat_pain" = "Noxious\n heat",
+  "mech_pain" = "Noxious\n mechanical"))+
+  labs(x = "", y = "", 
+       title = "Cluster 3")+
+  theme(
+    legend.position = "none",
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 20),
+    axis.text = element_text(color = "black", size = 18),
+    axis.title = element_text(face = "plain", size = 20),
+    axis.line = element_line(linewidth = 0.4),
+    axis.ticks = element_line(linewidth = 0.4)
+  )
+
+plot_freq_c3
+
+
+
+
+
+ggsave("C:/Users/silic/Desktop/plot_freq_ipsc_c3.png", 
+       plot = plot_freq_c3, width = 8, height = 6, dpi = 600)
+
+
+
+##
+plot_freq_c4 <- ggplot(z_score_ipsc_with_cluster_no_na_c4, aes(x = narrow_type, y = mean_z_score_freq, color = narrow_type)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.5) +
+  geom_jitter(width = 0.15, size = 3, alpha = 0.7) +
+  geom_text_repel(aes(label = global_cell_number), size = 5, color = "black", 
+                   max.overlaps = Inf, segment.size = 0.2, segment.color = "grey60") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey50") +
+  theme_minimal() +
+  coord_cartesian(ylim = c(-3,3)) +
+  scale_y_continuous(breaks = seq(-3, 3, by = 0.5))+
+  scale_x_discrete(labels = c(
+  "cold_pain" = "Noxious\n cold",
+  "heat_pain" = "Noxious\n heat",
+  "mech_pain" = "Noxious\n mechanical"))+
+  labs(x = "", y = "", 
+       title = "Cluster 4")+
+  theme(
+    legend.position = "none",
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 20),
+    axis.text = element_text(color = "black", size = 18),
+    axis.title = element_text(face = "plain", size = 20),
+    axis.line = element_line(linewidth = 0.4),
+    axis.ticks = element_line(linewidth = 0.4)
+  )
+
+plot_freq_c4
+
+
+
+
+ggsave("C:/Users/silic/Desktop/plot_freq_ipsc_c4.png", 
+       plot = plot_freq_c4, width = 8, height = 6, dpi = 600)
+
+############ make the same plot but with epsc frequency, of the same cells, same cluster
+
+z_score_epsc_with_cluster <- z_score_epsc_below3 |>
+  left_join(z_wide |> select(global_cell_number, cluster_k4), by = "global_cell_number") #69
+
+
+
+z_score_epsc_with_cluster_no_na <- z_score_epsc_with_cluster |> filter(!is.na(cluster_k4))# 69
+
+
+z_score_epsc_with_cluster_no_na |> arrange(cluster_k4) |> select(global_cell_number, cluster_k4, everything())
+
+
+z_score_epsc_with_cluster_no_na_c1 <- z_score_epsc_with_cluster_no_na[z_score_epsc_with_cluster_no_na$cluster_k4 ==1,]
+
+z_score_epsc_with_cluster_no_na_c3 <- z_score_epsc_with_cluster_no_na[z_score_epsc_with_cluster_no_na$cluster_k4 ==3,]
+
+z_score_epsc_with_cluster_no_na_c4 <- z_score_epsc_with_cluster_no_na[z_score_epsc_with_cluster_no_na$cluster_k4 ==4,]
+
+### 
+
+#plot
+plot_freq_c4_EPSC <- ggplot(z_score_epsc_with_cluster_no_na_c4, aes(x = narrow_type, y = mean_z_score_freq, color = narrow_type)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.5) +
+  geom_jitter(width = 0.15, size = 3, alpha = 0.7) +
+  geom_text_repel(aes(label = global_cell_number), size = 2.5, color = "black", 
+                   max.overlaps = Inf, segment.size = 0.2, segment.color = "grey60") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey50") +
+  theme_minimal() +
+  coord_cartesian(ylim = c(-4,4)) +
+  scale_y_continuous(breaks = seq(-4, 4, by = 0.5))+
+  scale_x_discrete(labels = c(
+  "cold_pain" = "",
+  "heat_pain" = "",
+  "mech_pain" = ""))+
+  labs(x = "", y = "", 
+       title = "Cluster 4")+
+  theme(
+    legend.position = "none",
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 20),
+    axis.text = element_text(color = "black", size = 18),
+    axis.title = element_text(face = "plain", size = 20),
+    axis.line = element_line(linewidth = 0.4),
+    axis.ticks = element_line(linewidth = 0.4)
+  )
+
+
+
+
+ggsave("C:/Users/silic/Desktop/plot_freq_EPSC_c4.png", 
+       plot = plot_freq_c4_EPSC, width = 8, height = 6, dpi = 600)
+
+
+
+#
+#plot
+plot_freq_c3_EPSC <- ggplot(z_score_epsc_with_cluster_no_na_c3, aes(x = narrow_type, y = mean_z_score_freq, color = narrow_type)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.5) +
+  geom_jitter(width = 0.15, size = 3, alpha = 0.7) +
+  geom_text_repel(aes(label = global_cell_number), size = 2.5, color = "black", 
+                   max.overlaps = Inf, segment.size = 0.2, segment.color = "grey60") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey50") +
+  theme_minimal() +
+  coord_cartesian(ylim = c(-4,4)) +
+  scale_y_continuous(breaks = seq(-4, 4, by = 0.5))+
+  scale_x_discrete(labels = c(
+  "cold_pain" = "",
+  "heat_pain" = "",
+  "mech_pain" = ""))+
+  labs(x = "", y = "", 
+       title = "Cluster 3")+
+  theme(
+    legend.position = "none",
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 20),
+    axis.text = element_text(color = "black", size = 18),
+    axis.title = element_text(face = "plain", size = 20),
+    axis.line = element_line(linewidth = 0.4),
+    axis.ticks = element_line(linewidth = 0.4)
+  )
+
+
+
+
+ggsave("C:/Users/silic/Desktop/plot_freq_EPSC_c3.png", 
+       plot = plot_freq_c3_EPSC, width = 8, height = 6, dpi = 600)
+
+
+##
+#plot
+plot_freq_c1_EPSC <- ggplot(z_score_epsc_with_cluster_no_na_c1, aes(x = narrow_type, y = mean_z_score_freq, color = narrow_type)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.5) +
+  geom_jitter(width = 0.15, size = 3, alpha = 0.7) +
+  geom_text_repel(aes(label = global_cell_number), size = 2.5, color = "black", 
+                   max.overlaps = Inf, segment.size = 0.2, segment.color = "grey60") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey50") +
+  theme_minimal() +
+  coord_cartesian(ylim = c(-4,4)) +
+  scale_y_continuous(breaks = seq(-4, 4, by = 0.5))+
+  scale_x_discrete(labels = c(
+  "cold_pain" = "",
+  "heat_pain" = "",
+  "mech_pain" = ""))+
+  labs(x = "", y = "z-score of EPSC frequency", 
+       title = "Cluster 1")+
+  theme(
+    legend.position = "none",
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 20),
+    axis.text = element_text(color = "black", size = 18),
+    axis.title = element_text(face = "plain", size = 20),
+    axis.line = element_line(linewidth = 0.4),
+    axis.ticks = element_line(linewidth = 0.4)
+  )
+
+
+
+
+ggsave("C:/Users/silic/Desktop/plot_freq_EPSC_c1.png", 
+       plot = plot_freq_c1_EPSC, width = 8, height = 6, dpi = 600)
+
+
+###
+
+# try make 6 plot 1 big graph
+library(cowplot)
+
+combined_plot <- plot_grid(
+  plot_freq_c1_EPSC, plot_freq_c3_EPSC, plot_freq_c4_EPSC, 
+  plot_freq_c1, plot_freq_c3, plot_freq_c4,
+  labels = c("a )", "b )", "c )", "d )", "e )", "f )"),
+  ncol = 3,           # adjust layout — 2 columns x 3 rows, or try ncol = 3 for 3x2
+  label_size = 30)
+
+combined_plot
+
+#save_plot("C:/Users/silic/Desktop/combined_six_panel.png", combined_plot, base_width = 22, base_height = 16, dpi = 300)
+
+
+library(patchwork)
+
+
+combined_plot <- (plot_freq_c1_EPSC +plot_freq_c3_EPSC + plot_freq_c4_EPSC) / (plot_freq_c1 +plot_freq_c3 +plot_freq_c4) +
+  plot_annotation(
+    title = "Effect of stimulus on event frequency in cells clustered by EPSC",
+    tag_levels = "a"
+  ) &
+  theme(
+    plot.tag = element_text(size = 16, face = "bold"),
+    plot.title = element_text(size = 18, face = "bold", hjust = 0.5)
+  )
+
+combined_plot
+
+ggsave("C:/Users/silic/Desktop/final_plot.png", combined_plot, 
+       width = 22, height = 15, dpi = 300)
+### amp mean
+### Step 1: reshape to wide format — one row per cell, one column per stimulus/narrow_type
+z_wide_amp_mean <- z_score_epsc_below3 |>
+  select(global_cell_number, narrow_type, mean_z_score_amp_standard) |>
+  pivot_wider(names_from = narrow_type, values_from = mean_z_score_amp_standard)
+
+nrow(z_wide_amp_mean)   # should equal your total number of cells now, no rows lost
+
+### Step 2: scale features (so no single stimulus dominates due to larger variance) and cluster
+features <- z_wide_amp_mean |> select(-global_cell_number) |> scale()
+
+dist_matrix <- dist(features, method = "euclidean")
+hc <- hclust(dist_matrix, method = "ward.D2")
+
+dendo_amp_mean <- plot(hc, labels = z_wide_amp_mean$global_cell_number, main = "Cell clustering by z-score amplitude profile")
+
+ggsave("C:/Users/silic/Desktop/dendogram_plot_amp_mean.png", 
+       plot = dendo_amp_mean, width = 15, height = 10, dpi = 600)
+
+
+
+#######################
+clusters_k2 <- cutree(hc, k = 2)
+clusters_k4 <- cutree(hc, k = 4)
+
+z_wide_amp_mean$cluster_k2 <- factor(clusters_k2)
+z_wide_amp_mean$cluster_k4 <- factor(clusters_k4)
+
+###
