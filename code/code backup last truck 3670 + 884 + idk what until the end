@@ -1,0 +1,1857 @@
+```{r}
+
+###############
+M1 <- glmmTMB(scaled_freq ~ broad_type  + (1 | record_date),
+  family = beta_family(link = "logit"),
+  data = MI_all)
+
+M2 <- glmmTMB(scaled_freq ~ narrow_type  + (1 | record_date),
+  family = beta_family(link = "logit"),
+  data = MI_all)
+M3 <- glmmTMB(scaled_freq ~ pain_innocuous + event_type + (1 | record_date),
+  family = beta_family(link = "logit"),
+  data = MI_all)
+
+AIC(M1)
+AIC(M2)
+AIC(M3)
+
+summary(M2)
+
+library(emmeans)
+
+emm_M2 <- emmeans(M2, ~ narrow_type, type = "response")
+View(emm_M2)
+emm_M2_df <- as.data.frame(emm_M2)
+emm_M2_df$MI_freq <- 2 * emm_M2_df$response - 1
+emm_M2_df
+
+
+emm_M2_df$MI_freq <- 2 * emm_M2_df$response - 1
+emm_M2_df$MI_lower <- 2 * emm_M2_df$asymp.LCL - 1
+emm_M2_df$MI_upper <- 2 * emm_M2_df$asymp.UCL - 1
+
+
+
+
+# plot version 2
+
+library(ggplot2)
+
+# Plot estimated marginal means
+emmeans_plot_freq_narrow_update <- ggplot(
+  emm_M2_df,
+  aes(x = narrow_type, y = MI_freq)
+) +
+  
+  # Model-estimated MI
+  geom_point(
+    size = 3,
+    color = "black"
+  ) +
+  
+  # 95% confidence intervals
+  geom_errorbar(
+    aes(
+      ymin = MI_lower,
+      ymax = MI_upper
+    ),
+    width = 0.2,
+    color = "black"
+  ) +
+  
+  # Update stimulus labels
+  scale_x_discrete(
+    labels = c(
+      "cold_innocuous" = "Innocuous cold",
+      "cold_pain" = "Cold pain",
+      "heat_pain" = "Heat pain",
+      "mech_innocuous" = "Innocuous mechanical",
+      "mech_pain" = "Mechanical pain",
+      "warm_innocuous" = "Innocuous warm"
+    )
+  ) +
+  
+  # Axis and title labels
+  labs(
+    x = "Cutaneous stimulus subtypes appplied onto Phox2aCre crossed Mice",
+    y = "Predicted Modulation Index of Frequency",
+    title = "GLMM Estimated Modulation Index (frequency post-stim vs baseline) \non EPSC/IPSC in lamina I projection neurons"
+  ) +
+  
+  # Theme
+  theme_minimal() +
+  theme(
+    plot.title = element_text(
+      hjust = 0.5, face = "bold", size = 12
+    ),
+    axis.text = element_text(
+      color = "black", size = 11
+    ),
+    axis.title = element_text(
+      face = "plain", size = 12
+    ),
+    axis.line = element_line(linewidth = 0.4),
+    axis.ticks = element_line(linewidth = 0.4),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+
+# save p2 mean ##########
+ggsave("C:/Users/silic/Desktop/emmeans_plot_freq_narrow_update.tiff", emmeans_plot_freq_narrow_update , 
+       height = 5, width = 7,  units = "in", dpi = 300)
+
+ggsave(
+  "C:/Users/silic/Desktop/emmeans_plot_freq_narrow_update.png",
+  plot = emmeans_plot_freq_narrow_update ,
+  width = 7,
+  height = 5,
+  dpi = 300
+)
+
+
+```
+
+```{r}
+# calude
+
+## ================================================================
+## TIDYING WRITE-UP THESIS
+## Step 1: test outcome distribution -> Step 2: pick GLMM family
+## Step 3: fit all 6 models with detailed output
+## ================================================================
+
+# ---- packages ----
+library(lme4)
+library(lmerTest)
+library(glmmTMB)     # needed for beta-family GLMM (bounded outcomes)
+library(readr)
+
+# ---- read data ----
+MI_all <- read.csv("C:/Users/silic/Desktop/MI_all.csv")
+
+# ---- ensure correct data type ----
+MI_all$file_prefix        <- as.factor(MI_all$file_prefix)
+MI_all$event_type         <- as.factor(MI_all$event_type)
+MI_all$broad_type         <- as.factor(MI_all$broad_type)
+MI_all$narrow_type        <- as.factor(MI_all$narrow_type)
+MI_all$pain_innocuous     <- as.factor(MI_all$pain_innocuous)
+MI_all$record_date        <- as.factor(MI_all$record_date)
+MI_all$Cell               <- as.factor(MI_all$Cell)
+MI_all$global_cell_number <- as.factor(MI_all$global_cell_number)
+
+summary(MI_all)
+unique(MI_all$record_date)
+
+
+## ================================================================
+## STEP 1 — TEST DISTRIBUTION OF OUTCOME VARIABLES
+## MI_freq and MI_median_amp are bounded on [-1, 1]
+## ================================================================
+
+skewness <- function(x) {
+  x <- x[!is.na(x)]; n <- length(x)
+  m3 <- sum((x - mean(x))^3) / n
+  m2 <- sum((x - mean(x))^2) / n
+  m3 / m2^1.5
+}
+kurtosis <- function(x) {
+  x <- x[!is.na(x)]; n <- length(x)
+  m4 <- sum((x - mean(x))^4) / n
+  m2 <- sum((x - mean(x))^2) / n
+  m4 / m2^2 - 3
+}
+
+check_distribution <- function(x, name) {
+  x <- x[!is.na(x)]
+  cat("\n================", name, "================\n")
+  cat("n =", length(x), " range = [", min(x), ",", max(x), "]\n")
+  cat("mean =", round(mean(x), 4), " sd =", round(sd(x), 4), "\n")
+  cat("skewness =", round(skewness(x), 3),
+      " kurtosis (excess) =", round(kurtosis(x), 3), "\n")
+
+  # proportion of values sitting exactly at the -1/0/1 boundaries
+  cat("proportion at -1:", mean(x == -1),
+      " at 0:", mean(x == 0),
+      " at 1:", mean(x == 1), "\n")
+
+  sw <- shapiro.test(sample(x, min(5000, length(x))))  # shapiro caps at n=5000
+  print(sw)
+
+  hist(x, breaks = 40, main = paste("Histogram:", name), col = "grey80")
+  qqnorm(x, main = paste("Q-Q plot:", name)); qqline(x, col = "red")
+}
+
+check_distribution(MI_all$MI_freq,       "MI_freq")
+check_distribution(MI_all$MI_median_amp, "MI_median_amp")
+
+
+## ================================================================
+## STEP 2 — SELECT THE RIGHT GLMM FAMILY
+## Decision rule:
+##  - If Shapiro-Wilk is NOT significant (p > .05) and skew/kurtosis
+##    are small (~|skew| < 1, |excess kurtosis| < 1) -> Gaussian LMM
+##    (lme4::lmer) is defensible.
+##  - Otherwise (bounded, skewed, or boundary mass) -> rescale to
+##    (0,1) and fit a Beta GLMM (glmmTMB, family = beta_family()),
+##    which respects the [-1,1] boundedness that Gaussian ignores.
+##
+## Below we build the (0,1)-rescaled version of each outcome so the
+## beta-family models are ready to go; keep or drop this branch
+## based on what Step 1 told you about each variable.
+## ================================================================
+
+# Smithson & Verkuilen (2006) squeeze: keeps values strictly inside (0,1)
+# even if some observations sit exactly on the -1/1 boundary
+squeeze_to_beta <- function(x) {
+  y <- (x + 1) / 2                      # [-1,1] -> [0,1]
+  n <- sum(!is.na(y))
+  (y * (n - 1) + 0.5) / n                # [0,1] -> (0,1)
+}
+
+MI_all$MI_freq_beta       <- squeeze_to_beta(MI_all$MI_freq)
+MI_all$MI_median_amp_beta <- squeeze_to_beta(MI_all$MI_median_amp)
+
+
+## ================================================================
+## STEP 3 — FIT ALL 6 MODELS, DETAILED OUTPUT
+## Swap the family in fit_model() below once Step 1/2 tell you which
+## branch applies to each outcome (gaussian lmer vs. beta glmmTMB).
+## ================================================================
+
+fit_model_gaussian <- function(formula, data) {
+  m <- lmer(formula, data = data)
+  print(summary(m))
+  print(confint(m, method = "Wald"))
+  m
+}
+
+fit_model_beta <- function(formula, data) {
+  m <- glmmTMB(formula, data = data, family = beta_family(link = "logit"))
+  print(summary(m))
+  print(confint(m))
+  m
+}
+
+# ---- 1. broad type ----
+
+broad_amplitude <- fit_model_beta(
+  MI_median_amp_beta ~ broad_type * event_type + (1 | record_date),
+  data = MI_all
+)
+
+broad_frequency <- fit_model_beta(
+  MI_freq_beta ~ broad_type * event_type + (1 | record_date),
+  data = MI_all
+)
+
+# ---- 2. narrow type ----
+
+narrow_frequency <- fit_model_beta(
+  MI_freq_beta ~ narrow_type * event_type + (1 | record_date),
+  data = MI_all
+)
+
+narrow_amplitude <- fit_model_beta(
+  MI_median_amp_beta ~ narrow_type * event_type + (1 | record_date),
+  data = MI_all
+)
+
+# ---- 3. pain vs. non-pain type ----
+
+pain_frequency <- fit_model_beta(
+  MI_freq_beta ~ pain_innocuous * event_type + (1 | record_date),
+  data = MI_all
+)
+
+pain_amplitude <- fit_model_beta(
+  MI_median_amp_beta ~ pain_innocuous * event_type + (1 | record_date),
+  data = MI_all
+)
+```
+
+```{r}
+library(dplyr)
+library(tidyverse)
+library(tools)
+library(readr)
+```
+
+```{r}
+#metadata <- readr::read_csv("C:/Users/silic/Desktop/Data_4_stim/abf_metadata_2026_updated.csv")
+metadata <- readr::read_csv("C:/Users/silic/Desktop/master_project_updated_pipeline_backup/metadata_with_base_name_23_to_26.csv")
+```
+
+```{r}
+# define function to read csv and set column name 
+file_read <- function(csv_path){
+  
+  # Import all events data, 
+  # col_names means whether the first row becomes column names
+  # our first row is the date of recording/ file name
+  events <- read_csv(csv_path,
+                     col_names = TRUE)
+  
+  # now the first row of data is our column name, set that
+  # 1:16 coz we always have 16 columns in output EPhys csv
+  #colnames(events) <- as.character(events[1,1:16])  # change data type
+  
+  # delete first row coz it is now duplicated
+  #n_row <- nrow(events)
+  #events <- events[2:n_row,1:16]
+  
+    #new updated version of _events table need to rename column name (17:16 5th August)
+  #events <- events |> rename(
+  #  `Event Number`        = Event.Number,
+  #  Record                = Record,
+  #  `Event Time (s)`      = Event.Time..s.,
+  #  `Baseline (pA)`       = Baseline..pA.,
+  #  `Peak (pA)`           = Peak..pA.,
+  #  `Amplitude (pA)`      = Amplitude..pA.,
+  #  `Rise Time (ms)`      = Rise.Time..ms.,
+  #  `Half-Width (ms)`     = Half.Width..ms.,
+  #  `Decay Time (ms)`     = Decay.Time..ms.,
+  # `Decay Fit b0`        = Decay.Fit.b0,
+  # `Decay Fit b1`        = Decay.Fit.b1,
+  #  `Decay Fit Tau (ms)`  = Decay.Fit.Tau..ms.,
+  #  `AUC (pA ms)`         = AUC..pA.ms.,
+  #  rise_max_time         = rise_max_time,
+  #  baseline_time         = baseline_time,
+  #  event_index           = event_index
+  #  )
+  
+  
+  # ensure correct datatype in the time and amplitude columns
+  events$`Event Time (s)` <-as.numeric(events$`Event Time (s)`)
+  events$`Amplitude (pA)` <-as.numeric(events$`Amplitude (pA)`)
+  events$Record <-as.numeric(events$Record)
+  events$`Baseline (pA)` <- as.numeric(events$`Baseline (pA)`)
+  events$`AUC (pA ms)` <- as.numeric(events$`AUC (pA ms)`) # ensure AUC column correct variable type 
+
+
+  return(events)
+}
+
+```
+
+```{r}
+
+# df$`Baseline (pA)` <- as.numeric(df$`Baseline (pA)`)
+
+get_stats_spontaneous <- function(df, 
+                      t_min, 
+                      t_max,
+                      time_col = "relative_time", 
+                      amp_col = "Amplitude (pA)", 
+                      record_col = "Record",
+                      baseline_col = "Baseline (pA)") {
+  
+  window_length <- t_max - t_min
+  
+  # Step 1: compute stats per record
+  result_spontaneous <- df |>
+    group_by(.data[[record_col]]) |>
+    summarise(
+      n_before_stim = sum(
+        !is.na(.data[[time_col]]) &
+        .data[[time_col]] >= t_min &
+        .data[[time_col]] <= t_max
+      ),
+      
+      avg_amp_before_stim = abs(mean(
+        .data[[amp_col]][
+          !is.na(.data[[time_col]]) &
+          .data[[time_col]] >= t_min &
+          .data[[time_col]] <= t_max
+        ],
+        na.rm = TRUE)
+      ),
+            
+      avg_baseline_before_stim = mean(
+        .data[[baseline_col]][
+          !is.na(.data[[baseline_col]]) &
+          .data[[time_col]] >= t_min &
+          .data[[time_col]] <= t_max
+        ],
+        na.rm = TRUE
+      ),
+      
+      
+      frequency_before_stim = n_before_stim / window_length,
+      .groups = "drop"
+    )
+  
+  # Step 2: join back into original dataframe
+  df_spontaneous <- df |>
+    left_join(result_spontaneous, by = record_col)
+  
+  # Step 3: return BOTH objects
+  return(list(
+    summary_table_pre_stim = result_spontaneous,
+    joined_df_pre_stim = df_spontaneous
+  ))
+}
+```
+
+```{r}
+# sample size
+
+
+library(ggplot2)
+
+# ==== DATA ====
+
+# Broad types (stacked inside one bar)
+broad <- data.frame(
+  bar = "broad_types",
+  type = c("cold", "hot", "mechanical"),
+  value = c(131, 129, 189)
+)
+
+# Narrow types (stacked inside one bar)
+narrow <- data.frame(
+  bar = "narrow_types",
+  type = c("cold_innocuous", "cold_pain",
+           "heat_pain", "mech_innocuous",
+           "mech_pain", "warm_innocuous"),
+  value = c(14, 117, 105, 84, 103, 26)
+)
+
+# Pain / innocuous (stacked inside one bar)
+pain_innocuous <- data.frame(
+  bar = "pain_innocuous",
+  type = c("innocuous", "pain"),
+  value = c(124, 325)
+)
+
+# Combine all into one dataframe
+df <- rbind(broad, narrow, pain_innocuous)
+
+# ==== COLOR-BLIND FRIENDLY PALETTE ====
+cb_palette <- c(
+  "cold" = "#999999",
+  "hot" = "#56B4E9",
+  "mechanical" = "#009E73",
+  "cold_innocuous" = "#F0E442",
+  "cold_pain" = "#0072B2",
+  "heat_pain" = "#D55E00",
+  "mech_innocuous" = "#CC79A7",
+  "mech_pain" = "#E69F00",
+  "warm_innocuous" = "#000000",
+  "innocuous" = "#009E73",
+  "pain" = "#D55E00"
+)
+
+# ==== PLOT ====
+
+# number of neurons
+PNs <- data.frame(
+  bar = "",
+  PNs_subtypes = c("mechanical-selective", "cold-selective", "mechanical and cold sensitive", "mechanical, cold and heat sensitive", "cold and heat sensitive"),
+  value = c(11, 6, 5, 2, 1)
+)
+
+PN_palette <- c("cold-selective" = "#D55E00", 
+                "mechanical-selective" = "#009E73",
+  "mechanical and cold sensitive" = "#CC79A7",
+  "mechanical, cold and heat sensitive" = "#56B4E9",
+  "cold and heat sensitive" = "#999999")
+
+
+###
+bar_PNs <- ggplot(PNs, aes(x = bar, y = value, fill = PNs_subtypes)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = value),
+            position = position_stack(vjust = 0.5),
+            color = "white", size = 3.5) +
+  scale_fill_manual(values = PN_palette) +
+  labs(
+    title = "Response properties of projection neurons",
+    x = "",
+    y = "Number of neurons across all animals"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 12),
+    plot.title = element_text(size = 16, face = "bold")
+  )+
+  theme(
+    plot.title = element_text(hjust = 0, face = "bold", size = 12),
+    axis.text = element_text(color = "black", size = 10),
+    axis.title = element_text(face = "plain", size = 11),
+    axis.line = element_line(linewidth = 0.4),
+    axis.ticks = element_line(linewidth = 0.4)
+  )
+
+
+bar_PNs
+
+ggsave(
+  "C:/Users/silic/Desktop/bar_PNs.png",
+  plot = bar_PNs,
+  width = 4,
+  height = 6,
+  dpi = 300)
+
+
+
+###
+
+
+library(ggplot2)
+
+broad <- data.frame(
+  bar = "broad_types",
+  type = c("cold", "hot", "mechanical"),
+  value = c(131, 129, 189)
+)
+
+narrow <- data.frame(
+  bar = "narrow_types",
+  type = c("cold_innocuous", "cold_pain",
+           "heat_pain", "mech_innocuous",
+           "mech_pain", "warm_innocuous"),
+  value = c(14, 117, 105, 84, 103, 26)
+)
+
+pain_innocuous <- data.frame(
+  bar = "pain_innocuous",
+  type = c("innocuous", "pain"),
+  value = c(124, 325)
+)
+
+df <- rbind(broad, narrow, pain_innocuous)
+
+
+cb_palette <- c(
+  "cold" = "#999999",
+  "hot" = "#56B4E9",
+  "mechanical" = "#009E73",
+  "cold_innocuous" = "#F0E442",
+  "cold_pain" = "#0072B2",
+  "heat_pain" = "#D55E00",
+  "mech_innocuous" = "#CC79A7",
+  "mech_pain" = "#E69F00",
+  "warm_innocuous" = "#000000",
+  "innocuous" = "#009E73",
+  "pain" = "#D55E00"
+)
+
+# ==== PLOT ====
+
+bar<- ggplot(df, aes(x = bar, y = value, fill = type)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = value),
+            position = position_stack(vjust = 0.5),
+            color = "white", size = 3.5) +
+  scale_fill_manual(values = cb_palette) +
+  labs(
+    title = "Balance of factor groups",
+    x = "Different ways of classification of stimulus",
+    y = "Number of recordings"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 12),
+    plot.title = element_text(size = 16, face = "bold")
+  )+
+  scale_y_continuous(breaks = seq(0, 600, by = 50))+
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 12),
+    axis.text = element_text(color = "black", size = 10),
+    axis.title = element_text(face = "plain", size = 11),
+    axis.line = element_line(linewidth = 0.4),
+    axis.ticks = element_line(linewidth = 0.4),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+
+
+# save p2 mean ##########
+ggsave("C:/Users/silic/Desktop/bar_chart_new.tiff", bar, 
+       height = 5, width = 4.5,  units = "in", dpi = 300)
+
+ggsave(
+  "C:/Users/silic/Desktop/bar_chart_new.png",
+  plot = bar,
+  width = 4.5,
+  height = 5,
+  dpi = 300
+)
+
+175+84+237+162
+
+
+
+density_plot <- ggplot(MI_long, aes(x = value, fill = variable)) +
+  geom_density(alpha = 0.4) +   # transparency prevents hiding
+  scale_fill_manual(values = cb) +
+  theme_minimal() +
+  labs(title = "Distribution of Modulation Index\n(frequency and amplitude)",
+       x = "Modulation Index",
+       y= "Density",
+       fill = "Parameters")+
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 12),
+    axis.text = element_text(color = "black", size = 10),
+    axis.title = element_text(face = "plain", size = 11),
+    axis.line = element_line(linewidth = 0.4),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+
+# save p2 mean ##########
+ggsave("C:/Users/silic/Desktop/density_plot.tiff", density_plot, 
+       height = 4, width = 6,  units = "in", dpi = 300)
+
+ggsave(
+  "C:/Users/silic/Desktop/density_plot.png",
+  plot = density_plot,
+  width = 6,
+  height = 4,
+  dpi = 300)
+density 
+
+```
+
+```{r}
+# put the above code int a fucntion so that time can be customized
+get_stats_post_stim <- function(df, 
+                      t_min, 
+                      t_max,
+                      time_col = "time_post_stim", 
+                      amp_col = "Amplitude (pA)", 
+                      baseline_col = "Baseline (pA)",
+                      record_col = "Record") {
+  
+  window_length <- t_max - t_min
+  
+  # Step 1: compute stats per record
+  result_post_stim <- df |>
+    group_by(.data[[record_col]]) |>
+    summarise(
+      n_post_stim = sum(
+        !is.na(.data[[time_col]]) &
+        .data[[time_col]] >= t_min &
+        .data[[time_col]] <= t_max
+      ),
+      
+      avg_amp_post_stim = abs(mean(
+        .data[[amp_col]][
+          !is.na(.data[[time_col]]) &
+          .data[[time_col]] >= t_min &
+          .data[[time_col]] <= t_max
+        ],
+        na.rm = TRUE)
+        ),
+            
+      avg_baseline_post_stim = mean(
+        .data[[baseline_col]][
+          !is.na(.data[[time_col]]) &
+          .data[[time_col]] >= t_min &
+          .data[[time_col]] <= t_max
+        ],
+        na.rm = TRUE),
+      
+      frequency_post_stim = n_post_stim / window_length,
+      .groups = "drop"
+    )
+  
+  # Step 2: join back into original dataframe
+  df_post_stim <- df |>
+    left_join(result_post_stim, by = record_col)
+  
+  # Step 3: return BOTH objects
+  return(list(
+    summary_table_post_stim = result_post_stim,
+    joined_df_post_stim = df_post_stim
+  ))
+}
+
+```
+
+```{r}
+# load the cue time into the environment so that we can calculate relative time of each trial (of when it occured)
+#cue_table <- read_csv("cue_table.csv", col_names = TRUE)
+cue_table <- read_csv("C:/Users/silic/Downloads/cue_table.csv", col_names = TRUE)
+
+######
+# list direct subfolders 
+files <- list.files(
+  #path = "filtered",
+  path = "C:/Users/silic/Desktop/electrophysiology-project/events_4stim",
+  pattern = "\\.csv$",
+  full.names = TRUE
+)
+
+
+#print(files)
+
+# obtain file name without the directory name
+file_name_list <- basename(files)
+
+
+#output_folder_path <- "processed/"
+
+output_folder_path <- "C:/Users/silic/Downloads/4stim_results/"
+
+print(output_folder_path)
+
+# obtain time of cue 1 (time within sweep)
+#cue1 <- cue_table$cue_abs_time[1]
+  
+cue4 <- cue_table$cue_abs_time[4]
+cue8 <- cue_table$cue_abs_time[8]
+cue12 <- cue_table$cue_abs_time[12]
+cue16 <- cue_table$cue_abs_time[16]
+######
+```
+
+```{r}
+
+############### REDO SECTION 2222 #####################################
+
+# m1a wins
+null_freq <- lmer(scaled_freq ~ 1 + (1|record_date), data = MI_all, REML = FALSE)
+m1a <- lmer(scaled_freq ~ broad_type + (1|record_date), data = MI_all, REML = FALSE)
+m1b <- lmer(scaled_freq ~ event_type + (1|record_date), data = MI_all, REML = FALSE)
+m2 <- lmer(scaled_freq ~ broad_type + event_type + (1|record_date), data = MI_all, REML = FALSE)
+m3 <- lmer(scaled_freq ~ broad_type + event_type + broad_type* event_type + (1|record_date), data = MI_all, REML = FALSE)
+
+###
+##################
+anova(m2, m3)   # df = 2
+b <- 2*(logLik(m3)[1] - logLik(m2)[1])
+1 - pchisq(b, 2) # 0.227
+
+###
+##################
+anova(m2, m1a)   # df = 1
+b <- 2*(logLik(m2)[1] - logLik(m1a)[1])
+1 - pchisq(b, 1) # 0.2325
+# m1a better than m2
+
+###
+
+anova(m2, m1b)   # df = 2
+b <- 2*(logLik(m2)[1] - logLik(m1b)[1])
+1 - pchisq(b, 2) # 0
+# m2 better than m1b
+
+
+
+
+
+AIC(m1a)
+AIC(m1b)
+
+
+######
+
+anova(m1, null_freq)   # df = 2
+# start with the most complex model
+# complex - simple
+b <- 2*(logLik(m1)[1] - logLik(null_freq)[1])
+1 - pchisq(b, 2) # 0
+
+
+
+########################
+
+
+
+
+
+# narrow type, m1a wins
+null <- lmer(scaled_freq ~ 1 + (1|record_date), data = MI_all, REML = FALSE)
+m1a <- lmer(scaled_freq ~ narrow_type + (1|record_date), data = MI_all, REML = FALSE)
+m1b <- lmer(scaled_freq ~ event_type + (1|record_date), data = MI_all, REML = FALSE)
+m2 <- lmer(scaled_freq ~ narrow_type + event_type + (1|record_date), data = MI_all, REML = FALSE)
+m3 <- lmer(scaled_freq ~ narrow_type + event_type + narrow_type* event_type + (1|record_date), data = MI_all, REML = FALSE)
+
+anova(m2, m3)   # df = 5
+b <- 2*(logLik(m3)[1] - logLik(m2)[1])
+1 - pchisq(b, 5) # 0.7214
+
+##########
+anova(m2, m1a)   # df = 5
+b <- 2*(logLik(m2)[1] - logLik(m1a)[1])
+1 - pchisq(b, 1) # 0.44
+
+
+anova(m2, m1b)   # df = 5
+b <- 2*(logLik(m2)[1] - logLik(m1b)[1])
+1 - pchisq(b, 1) # 0
+
+# m2 better than m1b, but m1a better than m2
+
+
+
+
+
+
+
+
+
+
+
+## pain, m2 wins
+null <- lmer(scaled_freq ~ 1 + (1|record_date), data = MI_all, REML = FALSE)
+m1a <- lmer(scaled_freq ~ pain_innocuous + (1|record_date), data = MI_all, REML = FALSE)
+m1b <- lmer(scaled_freq ~ event_type + (1|record_date), data = MI_all, REML = FALSE)
+m2 <- lmer(scaled_freq ~ pain_innocuous + event_type + (1|record_date), data = MI_all, REML = FALSE)
+m3 <- lmer(scaled_freq ~ pain_innocuous + event_type + pain_innocuous* event_type + (1|record_date), data = MI_all, REML = FALSE)
+
+anova(m2, m3)  
+b <- 2*(logLik(m3)[1] - logLik(m2)[1])
+1 - pchisq(b, 1) # 0.077
+
+anova(m2, m1a)  
+b <- 2*(logLik(m2)[1] - logLik(m1a)[1])
+1 - pchisq(b, 1) # 0.617
+
+# m1a better than m2
+
+anova(m2, m1b)  
+b <- 2*(logLik(m2)[1] - logLik(m1b)[1])
+1 - pchisq(b, 1) # 0
+
+# m2 better than m1b
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+###
+#redo
+model1 <- lmer(scaled_freq ~ broad_type + (1|record_date), data = MI_all, REML = FALSE)
+model2 <- lmer(scaled_freq ~ narrow_type + (1|record_date), data = MI_all, REML = FALSE)
+model3 <- lmer(scaled_freq ~ pain_innocuous + event_type + (1|record_date), data = MI_all, REML = FALSE)
+AIC(model1)
+AIC(model2)
+AIC(model3)
+
+
+###
+model_1_again <- lmer(scaled_median_amp ~ event_type + (1|record_date), data = MI_all, REML = FALSE)
+model_2_again  <- lmer(scaled_median_amp ~ narrow_type + event_type + narrow_type* event_type + (1|record_date), data = MI_all, REML = FALSE)
+model_3_again  <- lmer(scaled_median_amp ~ pain_innocuous + event_type + pain_innocuous* event_type + (1|record_date), data = MI_all, REML = FALSE)
+
+AIC(model_1_again)
+AIC(model_2_again)
+AIC(model_3_again)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## compare AIC
+modelA <- lmer(scaled_freq ~ pain_innocuous + (1|record_date), data = MI_all, REML = FALSE)
+modelB <- lmer(scaled_freq ~ broad_type + (1|record_date), data = MI_all, REML = FALSE)
+modelC <- lmer(scaled_freq ~ narrow_type + (1|record_date), data = MI_all, REML = FALSE)
+summary(modelC)
+
+AIC(modelA)
+AIC(modelB)
+AIC(modelC)
+
+
+
+
+Model_A <- lmer(scaled_median_amp ~ broad_type + event_type + (1|record_date), data = MI_all, REML = FALSE)
+Model_B <- lmer(scaled_median_amp ~ narrow_type + event_type + narrow_type* event_type + (1|record_date), data = MI_all, REML = FALSE)
+Model_C <- lmer(scaled_median_amp ~ pain_innocuous + event_type + pain_innocuous* event_type + (1|record_date), data = MI_all, REML = FALSE)
+summary(Model_C)
+AIC(Model_A)
+AIC(Model_B)
+AIC(Model_C)
+```
+
+```{r}
+# define folder path to store results
+# loop over files to calculate frequency 1s bin
+
+
+#files <- list.files(
+#  path = "C:/Users/silic/Desktop/Data_4_stim/filtered",
+#  pattern = "\\.csv$",
+#  full.names = TRUE
+#)
+
+
+#print(files)
+#output_folder_path = "C:/Users/silic/Desktop/Data_4_stim/processed/"
+
+files <- list.files(
+  #path = "filtered",
+  path = "C:/Users/silic/Desktop/electrophysiology-project/events_4stim",
+  pattern = "\\.csv$",
+  full.names = TRUE
+)
+
+output_folder_path <- "C:/Users/silic/Downloads/4stim_results/"
+
+
+```
+
+```{r main-loop}
+# this is the main loop
+
+  
+# create empty list to store final results
+all_avg_bin <- list()
+all_1s_bin <- list()
+all_all_in_one <- list()
+
+for (file_path in files) { 
+  df <- file_read(file_path) # call the file_read function here
+  
+  #
+  df <- df |> filter(!is.na(Record))
+
+  
+  prefix <- tools::file_path_sans_ext(basename(file_path))
+  
+  df_backup <- df
+  n_dist = n_distinct(df$Record) 
+  print(n_dist)
+  
+  # ensure data type
+  df$`Event Time (s)` <- as.numeric(df$`Event Time (s)`)
+  df$`Amplitude (pA)` <- as.numeric(df$`Amplitude (pA)`)
+  df$Record <- as.numeric(df$Record)
+  df$`Baseline (pA)` <- as.numeric(df$`Baseline (pA)`)
+  df$`AUC (pA ms)` <- as.numeric(df$`AUC (pA ms)`) # ensure AUC column correct variable type 
+  
+
+
+
+  #### Part 1 --- old code that output two csv files, 1s frequency bin and average 1s frequency bin of four sweeps ---####
+  
+  # If file only has Record 1 but lasts ~100s, split into 4 fake records
+  #if (n_distinct(df$Record) == 1) {
+  #  df <- df |>
+  #    mutate(
+  #      Record = case_when(
+  #        `Event Time (s)` < 25  ~ 1,
+  #        `Event Time (s)` < 50  ~ 2,
+  #        `Event Time (s)` < 75  ~ 3,
+  #        `Event Time (s)` <= 100 ~ 4,
+  #        TRUE ~ NA_real_
+  #       )
+  #   )
+  # }
+  
+  # create relative time column
+  df$relative_time <- dplyr::case_when(
+    df$Record == 0 ~ df$`Event Time (s)` - 0,
+    df$Record == 1 ~ df$`Event Time (s)` - 25,
+    df$Record == 2~ df$`Event Time (s)` - 50,
+    df$Record == 3 ~ df$`Event Time (s)` - 75,
+    TRUE ~ NA_real_
+    )
+  
+
+  
+  # Create bin edges: 0–1, 1–2, ..., 24–25
+  breaks <- 0:25
+  bin_levels <- paste0("[", breaks[-length(breaks)], ",", breaks[-1], ")")
+  print(bin_levels)
+  
+  new_df <- df |>
+    group_by(Record) |>
+    mutate(bin = cut(
+      relative_time,
+      breaks = breaks,
+      include.lowest = TRUE,
+      right = FALSE,
+      labels = bin_levels)) |>
+    ungroup()
+
+  
+  #ewest_df <- new_df |>
+  # group_by(Record, bin) |>
+  # summarise(n_events = n(), .groups = "drop") |>
+  # complete(
+  #   Record = 1:4,
+  #   bin = bin_levels,
+  #   fill = list(n_events = 0)
+  #   ) |>
+  # mutate(bin = factor(bin, levels = bin_levels)) |>
+  # arrange(Record, bin)
+  
+  newest_df <- new_df |>
+  group_by(Record, bin) |>
+  summarise(n_events = n(), .groups = "drop") |>
+  complete(
+    Record = 0:3,
+    bin = bin_levels,
+    fill = list(n_events = 0)
+  ) |>
+  mutate(bin = factor(bin, levels = bin_levels)) |>
+  arrange(Record, bin)
+  
+  avg_by_bin <- newest_df |>
+    group_by(bin) |>
+    summarise(avg_n_events = mean(n_events, na.rm = TRUE),
+              .groups = "drop")
+  
+  avg_by_bin$file_name <- prefix
+  
+  newest_df$file_name <- prefix
+  
+  all_avg_bin[[prefix]] <- avg_by_bin
+  
+  all_1s_bin[[prefix]] <- newest_df
+  
+  #write.csv(avg_by_bin, 
+  #          paste0(output_folder_path,
+  #                 prefix, 
+  #                 "_avg_bin.csv"), 
+  #          row.names = FALSE ) 
+  
+  #write.csv(newest_df,
+  #          paste0(output_folder_path, prefix, "_1s_bin.csv"),
+  #          row.names = FALSE)
+  #cat("Finished processing:", prefix, "\n") 
+  
+    
+  print(prefix)
+
+  
+  df_part2 <- new_df
+  df_part2 <- df_part2 |> filter(!is.na(Record))
+  # cue 1-4 within each sweep (per your new code)
+  cue_times <- c(5, 6, 7, 8)
+  
+  # extract the lower bound of each "[a,b)" bin  ->  "[5,6)" becomes 5
+  
+  df_part2$bin_start <- as.numeric(sub("\\[([0-9]+),.*", "\\1", df_part2$bin))
+  
+  df_part2$bin_label <- dplyr::case_when(
+    df_part2$bin %in% c("[0,1)",
+                        "[1,2)","[2,3)","[3,4)","[5,6)",
+                        "[6,7)","[7,8)","[8,9)") ~ "spontaneous",
+    df_part2$bin == "[10,11)"                            ~ "excluded",
+    df_part2$bin == "[11,12)"                            ~ "post_stim_1s",
+    df_part2$bin == "[6,7)"                              ~ "post_stim_2s",
+    df_part2$bin == "[7,8)"                              ~ "post_stim_3s",
+    df_part2$bin == "[8,9)"                              ~ "post_stim_4s",
+    df_part2$bin == "[9,10)"                             ~ "post_stim_5s",
+    df_part2$bin == "[10,11)"                            ~ "post_stim_6s",
+    df_part2$bin == "[11,12)"                            ~ "post_stim_7s",
+    df_part2$bin == "[12,13)"                            ~ "post_stim_8s",
+    df_part2$bin == "[13,14)"                            ~ "post_stim_9s",
+    TRUE                                                  ~ "excluded"
+  )
+  
+  #### ------ END OF PART 1 ------ ####
+  
+  #### ------ Part 2: calculate cont AUC, freq cont, average baseline, freq, amplitude before and after stim, 3SD ------ ####
+  #### ------ the calculation of average 1s freq was repeated/redundant coz above lines already did so, nvm ------ ####
+  
+  
+  
+  
+  df_part2 <- new_df
+  
+  df_part2 <- df_part2 |> filter(!is.na(Record))
+
+  ######
+  df_part2$match_result <- findInterval(df_part2$`relative_time`,
+                                  cue_table$cue_abs_time)
+  
+  
+  
+  # make the interval label clearer
+  df_part2 <- df_part2 |>
+    mutate(interval = case_when(
+      match_result == 0 ~ "0_1", # can delete this, if doesnt care other interval
+      match_result == 1 ~ "1_2", # can delete this line 
+      match_result == 2 ~ "2_3", # can delete this line 
+      match_result == 3 ~ "3_4", # can delete this line 
+      match_result == 4 ~ "post_4",
+      TRUE ~ NA_character_ # If none of the previous conditions matched, return NA
+    ))
+
+
+
+# calculate the second after the 4th cue occurs
+  df_part2$time_post_stim <- dplyr::case_when(
+    df_part2$interval == "post_4" & df_part2$Record == 1 ~ 
+      df_part2$`Event Time (s)` - cue4,
+    df_part2$interval == "post_4" & df_part2$Record == 2 ~ 
+      df_part2$`Event Time (s)` - cue8,
+    df_part2$interval == "post_4" & df_part2$Record == 3 ~ 
+      df_part2$`Event Time (s)` - cue12,
+    df_part2$interval == "post_4" & df_part2$Record == 4 ~ 
+      df_part2$`Event Time (s)` - cue16,
+    TRUE ~ NA_real_
+  )
+  
+  
+  recording_1_spon <- get_stats_spontaneous(df_part2, t_min = 0, t_max = 9)
+  spon_table <- recording_1_spon[[1]]
+  
+  post_stim_2s <- get_stats_post_stim(df_part2, t_min = 0, t_max = 2)
+  post_table_2s <- post_stim_2s[[1]]
+  post_table_2s <- post_table_2s[,c(1,2,3,4,5)]
+  
+  post_table_2s <- post_table_2s |> 
+    rename(
+      frequency_post_stim_2s = frequency_post_stim,
+      avg_amp_post_stim_2s = avg_amp_post_stim)
+  
+  
+    
+  
+  # now try vary the timeframe that I chose for post-stimulation#
+  # since this is cold stimuli, it might take a while for the neuron to respond
+  
+  post_stim_3s <- get_stats_post_stim(df_part2, t_min = 0, t_max = 3)
+  post_table_3s <- post_stim_3s[[1]]
+  post_table_3s <- post_table_3s[,c(3,5)]
+  
+  post_table_3s <- post_table_3s |> 
+    rename(
+      frequency_post_stim_3s = frequency_post_stim,
+      avg_amp_post_stim_3s = avg_amp_post_stim)
+  
+  
+  
+  post_stim_4s <- get_stats_post_stim(df_part2, t_min = 0, t_max = 4)
+  post_table_4s <- post_stim_4s[[1]]
+  post_table_4s <- post_table_4s[,c(3,5)]
+  post_table_4s <- post_table_4s |> 
+    rename(
+      frequency_post_stim_4s = frequency_post_stim,
+      avg_amp_post_stim_4s = avg_amp_post_stim)
+  
+  
+
+  post_table_3s4s <- cbind( post_table_3s,  post_table_4s)
+  
+  
+  # post_stim 1s for mechanical
+  post_stim_1s <- get_stats_post_stim(df_part2, t_min = 0, t_max = 1)
+  post_table_1s <- post_stim_1s[[1]]
+  post_table_1s <- post_table_1s[,c(3,5)]
+  post_table_1s <- post_table_1s |> 
+    rename(
+      frequency_post_stim_1s = frequency_post_stim,
+      avg_amp_post_stim_1s = avg_amp_post_stim)
+  
+  post_table_3s4s1s <- cbind(post_table_3s4s, post_table_1s)
+  
+
+  
+  
+
+  freq_amp_table <- left_join(spon_table, post_table_2s, by = "Record")
+  
+  
+  # rename AUC column name to get rid of the bracket, also rename Amplitude column
+  df_part2 <- df_part2 |> 
+    rename(
+      AUC = `AUC (pA ms)`,
+      Amplitude = `Amplitude (pA)`
+      )
+  
+  # Calculate sum of AUC of all events within each 1s bin
+  # also calculate average amplitude per 1s bin????? (trying only)
+  data  <- df_part2 |>
+    group_by(Record, bin) |>
+    summarise(n_events = n(),
+              abs_auc_sum = abs(sum(AUC,  na.rm = TRUE)), 
+              amp_1s_bin = abs(mean(Amplitude, na.rm = TRUE)),
+              .groups = "drop") 
+  
+    
+    
+
+# now calculate AUC cont average, according to excel template it used the average of AUC between 5 to 13s, not sure why
+  auc_table <- data |>
+  group_by(Record) |>
+  
+  # 1. 篩選開頭數字為 4 到 12 的區間 (即 4,5,6,7,8,9,10,11,12)
+  filter(str_detect(bin, "^\\[([4-9]|1[0-2]),"))|>
+
+  # 2. 計算另一欄的平均值
+  summarise(
+    average_auc = mean(abs_auc_sum, na.rm = TRUE),
+    sd_auc = sd(abs_auc_sum, na.rm = TRUE),
+    avg_auc_plus_3sd = average_auc + 3*sd_auc,
+    .groups = "drop"
+  )
+  
+  # calculate spon firing frequency 1-9s again???? why lol
+  # coz this time wanna calculate sd
+  frequency_table <- data |> 
+    filter(str_detect(bin, "^\\[([0-8]),")) |>
+    group_by(Record) |>
+    summarise(
+      frequency_before_stim = mean(n_events, na.rm = TRUE), # average n means average number of events from 0 to 9s, means spon freq
+      sd_freq_before = sd(n_events, na.rm = TRUE),
+      avg_freq_plus_3sd = frequency_before_stim + 3*sd_freq_before,
+      avg_freq_plus_2p5sd = frequency_before_stim + 2.5*sd_freq_before,
+      avg_freq_plus_2sd = frequency_before_stim + 2*sd_freq_before,
+      
+      
+      # now calcualte sd of amplitude of 9s bin (before stim)
+      average_amp = mean(amp_1s_bin, na.rm = TRUE),
+      sd_amp_before = sd(amp_1s_bin, na.rm = TRUE),
+      avg_amp_plus_3sd = average_amp + 3*sd_amp_before,
+      avg_amp_plus_2p5sd = average_amp + 2.5*sd_amp_before,
+      avg_amp_plus_2sd = average_amp + 2*sd_amp_before,
+      .groups = "drop"
+      )
+  
+  # combine the spontaneous frequency table and the average auc table
+  # delete the repeated column (frequency_before_stim) before combining the final table
+  cont_table <- left_join(auc_table,frequency_table, by = "Record" )  |> 
+    select(-frequency_before_stim) |> 
+    select(-average_amp)
+  
+  # combine the cont and average table
+  combined_table <- left_join(freq_amp_table, cont_table, by = "Record")
+  
+  # make a new column to store file name
+  combined_table$file_name <- prefix
+  
+
+  # calculate the z score (how many sd higher, is the post_stim frequency compared to pre stim frequencvy)
+  
+  combined_table <- combined_table |>
+    mutate(
+      # 1. 計算頻率與振幅分別高出幾個標準差 (Z-score)
+      freq_z_2s = (frequency_post_stim_2s - frequency_before_stim) / sd_freq_before,     
+      amp_z_2s  = (avg_amp_post_stim_2s - avg_amp_before_stim) / sd_amp_before,
+      # 2. 根據 > 2.5 SD 的門檻，自動判定是否對振幅有反應
+      freq_response_2s = ifelse(freq_z_2s > 3, "Responsive", "Non-responsive"),     
+      amp_response_2s = ifelse(amp_z_2s > 3, "Responsive", "Non-responsive"),
+      median_z_score_freq_2s = median(freq_z_2s),
+      median_freq_response_2s = ifelse(median_z_score_freq_2s > 3, "Responsive", "Non-responsive")
+      
+    )
+  
+  
+  combined_table_2 <- cbind(combined_table, post_table_3s4s1s)
+  
+   
+  combined_table_2 <- 
+    combined_table_2 |>
+    mutate(
+      amp_z_1s  = (avg_amp_post_stim_1s - avg_amp_before_stim) / sd_amp_before,
+      amp_z_3s  = (avg_amp_post_stim_3s - avg_amp_before_stim) / sd_amp_before,
+      amp_z_4s  = (avg_amp_post_stim_4s - avg_amp_before_stim) / sd_amp_before,
+      
+      amp_response_1s = ifelse(amp_z_1s > 3, "Responsive", "Non-responsive"),
+      amp_response_3s = ifelse(amp_z_3s > 3, "Responsive", "Non-responsive"),
+      amp_response_4s = ifelse(amp_z_4s > 3, "Responsive", "Non-responsive"),
+      
+      # 1. 計算頻率與振幅分別高出幾個標準差 (Z-score)
+      freq_z_3s = (frequency_post_stim_3s - frequency_before_stim) / sd_freq_before,     
+      freq_z_4s = (frequency_post_stim_4s - frequency_before_stim) / sd_freq_before,  
+      freq_z_1s = (frequency_post_stim_1s - frequency_before_stim) / sd_freq_before, 
+      # 2. 根據 > 2.5 SD 的門檻，自動判定是否對振幅有反應
+      freq_response_3s = ifelse(freq_z_3s > 3, "Responsive", "Non-responsive"),  
+      freq_response_4s = ifelse(freq_z_4s > 3, "Responsive", "Non-responsive"),   
+      freq_response_1s = ifelse(freq_z_1s > 3, "Responsive", "Non-responsive"),   
+
+      median_z_score_freq_3s = median(freq_z_3s),
+      median_freq_response_3s = ifelse(median_z_score_freq_3s > 3, "Responsive", "Non-responsive"),   
+      
+      
+      median_z_score_freq_4s = median(freq_z_4s),
+      median_freq_response_4s = ifelse(median_z_score_freq_4s > 3, "Responsive", "Non-responsive"),
+      
+            
+      median_z_score_freq_1s = median(freq_z_1s),
+      median_freq_response_1s = ifelse(median_z_score_freq_1s > 3, "Responsive", "Non-responsive")  
+      
+    )
+  
+  all_all_in_one[[prefix]] <- combined_table_2
+  
+  # save the table
+  #write.csv(combined_table_2, 
+  #          paste0(output_folder_path,
+  #                 prefix, 
+  #                 "_all_in_one_table.csv"), 
+  #          row.names = FALSE ) 
+  
+  # print
+  print("processed")
+  
+
+}
+
+
+  
+big_avg_bin <- dplyr::bind_rows(all_avg_bin, .id = "source_file")
+big_1s_bin <- dplyr::bind_rows(all_1s_bin, .id = "source_file")
+big_all_in_one <- dplyr::bind_rows(all_all_in_one, .id = "source_file")
+
+
+
+big_all_in_one <- big_all_in_one |>
+  select(
+    source_file,
+    Record,
+    freq_response_1s,
+    freq_response_2s,
+    freq_response_3s,
+    freq_response_4s,
+    freq_z_1s,
+    freq_z_2s,
+    freq_z_3s,
+    freq_z_4s,
+    frequency_before_stim,
+    frequency_post_stim_1s,
+    frequency_post_stim_2s,
+    frequency_post_stim_3s,
+    frequency_post_stim_4s,
+    amp_response_1s,
+    amp_response_2s,
+    amp_response_3s,
+    amp_response_4s,
+    amp_z_1s,
+    amp_z_2s,
+    amp_z_3s,
+    amp_z_4s,
+    avg_amp_before_stim,
+    avg_amp_post_stim_1s,
+    avg_amp_post_stim_2s,
+    avg_amp_post_stim_3s,
+    avg_amp_post_stim_4s,
+    everything()
+  )
+
+
+big_all_in_one <- big_all_in_one |>
+  tidyr::separate(
+    source_file,
+    into = c("year", "month", "date", "recording", "extra"),
+    sep = "_",
+    remove = FALSE
+  ) |>
+  select(-extra)
+
+
+big_all_in_one <- big_all_in_one |>
+  mutate(base = gsub("_filtered$", "", source_file))
+
+
+big_all_in_one$sweep_count <- metadata$sweep_count[ match(big_all_in_one$base, metadata$base) ]
+big_all_in_one$type <- metadata$type[ match(big_all_in_one$base, metadata$base) ]
+big_all_in_one$mV <- metadata$mV[ match(big_all_in_one$base, metadata$base) ]
+big_all_in_one$thermal_stim <- metadata$thermal_stim[ match(big_all_in_one$base, metadata$base) ]
+big_all_in_one$mechanical_stim <- metadata$mechanical_stim[ match(big_all_in_one$base, metadata$base) ]
+big_all_in_one$temp <- metadata$temp[ match(big_all_in_one$base, metadata$base) ]
+big_all_in_one$force <- metadata$force[ match(big_all_in_one$base, metadata$base) ]
+big_all_in_one$Cell <- metadata$Cell[ match(big_all_in_one$base, metadata$base) ]
+
+
+
+big_all_in_one <- big_all_in_one |>
+  select(
+    source_file,
+    Record,
+    type,
+    mV,
+    Cell,
+    everything()
+  )
+
+
+write.csv(big_avg_bin,
+          paste0(output_folder_path, "ALL_avg_bin.csv"),
+          row.names = FALSE)
+
+write.csv(big_1s_bin,
+          paste0(output_folder_path, "ALL_1s_bin.csv"),
+          row.names = FALSE)
+
+write.csv(big_all_in_one,
+          paste0(output_folder_path, "ALL_all_in_one_table.csv"),
+          row.names = FALSE)
+
+```
+
+```{r}
+# want to find out how many abf files were originally in my event detection program
+#
+library(dplyr)
+
+# these below three numbers, 308, 62, 107, are the abf files that we really tried detect event, even if the final number of events were 0
+
+
+event_4stim <- read.csv("C:/Users/silic/Desktop/master_project_updated_pipeline_backup/event_counts_summary_4stim.csv")
+unique(event_4stim$file_prefix) # 308
+
+event_mech <- read.csv("C:/Users/silic/Desktop/master_project_updated_pipeline_backup/event_counts_summary_mechanical.csv")
+unique(event_mech$file_prefix) # 62
+
+
+event_thermal <- read.csv("C:/Users/silic/Desktop/master_project_updated_pipeline_backup/event_counts_summary_thermal.csv")
+unique(event_thermal$file_prefix) # 107
+
+308+62+107
+
+
+
+# now plot example trace! for resulr section
+
+# oh my god i only filtered the event with amplitude >900 but not those events with amplitude <-900
+
+final_table_stim_with_date_with_cell |> filter('Amplitude..pA.' >900 )
+#final_table_stim_with_date_with_cell$Amplitude..pA.
+
+table <- final_table_stim_with_date_with_cell |>
+  dplyr::filter(`Amplitude..pA.` < -900)
+
+summary(table)
+
+table
+write.csv(table,"C:/Users/silic/Desktop/table.csv",
+          row.names = FALSE)
+
+noise_abs900 <- list.files("C:/Users/silic/Desktop/noise_ipsc")
+noise_abs900
+
+prefix <- tools::file_path_sans_ext(basename(noise_abs900))
+print(prefix)
+
+# remove the _event
+prefix <- sub("_event.*$", "", prefix)
+print(prefix)
+
+library(dplyr)
+
+# select data that I did not exclude, and is real noise
+table_n <- table |>   dplyr::filter(event_id %in% prefix)
+table_n
+
+
+write.csv(table_n,"C:/Users/silic/Desktop/noise_below_mins900.csv",
+          row.names = FALSE)
+
+
+#####
+data_2026_mech_ipsc <- final_table_stim_with_date_with_cell |>
+  filter(final_table_stim_with_date_with_cell$file_prefix %in% "2026_04_23_0020")
+
+write.csv(data_2026_mech_ipsc,"C:/Users/silic/Desktop/data_2026_mech_ipsc.csv",
+          row.names = FALSE)
+
+names(data_2026_mech)
+
+# median 6.1
+positive_event <- final_table_stim_with_date_with_cell |> filter(final_table_stim_with_date_with_cell$'Amplitude..pA.' > 6.1)
+
+
+positive_event <- positive_event |>
+  filter(positive_event$'Amplitude..pA.' < 6.3)
+
+
+summary(positive_event)
+
+
+set.seed(123456)
+positive_event_sampled <- positive_event[sample.int(nrow(positive_event), 20), ]
+
+
+write.csv(positive_event_sampled ,"C:/Users/silic/Desktop/positive_event_sampled .csv",
+          row.names = FALSE)
+
+
+### negative
+neg_event <- final_table_stim_with_date_with_cell |> filter(final_table_stim_with_date_with_cell$'Amplitude..pA.' < 0)
+
+summary(neg_event)
+
+
+# median -12.387
+neg_event <- neg_event |> 
+  filter(neg_event$'Amplitude..pA.' < -12.36)
+
+-12.387- 0.05
+
+neg_event <- neg_event |>
+  filter(neg_event$'Amplitude..pA.' > -12.4)
+
+# 324 rows
+
+
+set.seed(22222)
+negative_event_sampled <- neg_event[sample.int(nrow(neg_event), 20), ]
+
+write.csv(negative_event_sampled ,"C:/Users/silic/Desktop/negative_event_sampled .csv",
+          row.names = FALSE)
+
+
+
+#
+df <- final_table_stim_with_date_with_cell  
+
+
+p <-ggplot(df, aes(x = Amplitude..pA.)) +
+  geom_histogram(color = "black", alpha = 0.8) +
+  labs(x = "Amplitude (pA)", y = "Number of events") +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 12),
+    axis.text = element_text(color = "black", size = 12),
+    axis.title = element_text(face = "plain", size = 12),
+    axis.line = element_line(linewidth = 0.4),
+    axis.ticks = element_line(linewidth = 0.4)
+  )
+
+
+print(p)
+
+ggsave("C:/Users/silic/Desktop/amplitude_distribution.png", plot = p, width = 6, height = 4.5, dpi = 300)
+
+
+```
+
+```{r}
+library(ggplot2)
+
+direction <- -1
+rise_s <- 0.5 / 1000
+decay_s <- 5.0 / 1000
+
+b0 <- 0
+b1 <- 1
+
+x <- seq(0, 20 / 1000, length.out = 2000)
+
+
+biexp_event_function <- function(x, b0, b1, rise, decay) {
+  b0 + b1 * (1 - exp(-x / rise)) * exp(-x / decay)
+}
+
+y <- direction * biexp_event_function(
+  x,
+  b0,
+  b1,
+  rise_s,
+  decay_s
+)
+
+
+df <- data.frame(
+  time_ms = x * 1000,
+  amplitude = y
+)
+
+
+epsc<- ggplot(df, aes(x = time_ms, y = amplitude)) +
+  geom_line(linewidth = 1.2, colour = "steelblue") +
+  labs(
+    title = "E",
+    x = "Time (ms)",
+    y = "Amplitude"
+  ) +
+  annotate(
+  "text",
+  x = 12,
+  y = min(y) * 0.5,
+  label = "f(x) == b[0] + b[1] * (1 - e^{-x/rise}) * e^{-x/decay}",
+  parse = TRUE,
+  size = 5)+
+  theme_classic() +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 12),
+    axis.text = element_text(color = "black", size = 12),
+    axis.title = element_text(face = "plain", size = 12),
+    axis.line = element_line(linewidth = 0.4),
+    axis.ticks = element_line(linewidth = 0.4)
+  )
+
+epsc
+ipsc
+ggsave("C:/Users/silic/Desktop/epsc_template.png", plot = epsc, width = 6, height = 4.5, dpi = 300)
+
+getwd()
+
+data <- final_table_stim_with_date_with_cell
+
+
+data$broad_type <- as.factor(data$broad_type)
+data$narrow_type <- as.factor(data$narrow_type)
+data$ <- as.factor(data$broad_type)
+summary(final_table_stim_with_date_with_cell)
+```
+
+```{r}
+# ==== PLOT ====
+
+# number of neurons
+cold_PNs <- data.frame(
+  bar = "",
+  Stimulus = c("None of the stimulus",
+                   "cold and mechanical" ,
+                   "cold",
+                   "hot"),
+  value = c(2, 2, 1, 1)
+)
+
+cold_PN_palette <- c("None of the stimulus" = "#D55E00", 
+                "cold and mechanical" = "#009E73",
+                "cold" = "#CC79A7",
+                "hot" = "#56B4E9")
+
+ #"cold and heat sensitive" = "#999999")
+
+
+library(ggplot2)
+###
+cold_bar_PNs <- ggplot(cold_PNs, aes(x = bar, y = value, fill = Stimulus)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = value),
+            position = position_stack(vjust = 0.5),
+            color = "white", size = 3.5) +
+  scale_fill_manual(values = cold_PN_palette) +
+  labs(
+    title = "Stimulus that evoked IPSC in cold-selective neurons",
+    x = "",
+    y = "Number of neurons"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 12),
+    plot.title = element_text(size = 16, face = "bold")
+  )+
+  theme(
+    plot.title = element_text(hjust = 0, face = "bold", size = 12),
+    axis.text = element_text(color = "black", size = 10),
+    axis.title = element_text(face = "plain", size = 11),
+    axis.line = element_line(linewidth = 0.4),
+    axis.ticks = element_line(linewidth = 0.4)
+  )
+
+
+cold_bar_PNs
+
+ggsave(
+  "C:/Users/silic/Desktop/cold_bar_PNs.png",
+  plot = cold_bar_PNs,
+  width = 5,
+  height = 6,
+  dpi = 300)
+
+```
+
+```{r}
+# mechanical selective bar chart
+# number of neurons
+cold_PNs <- data.frame(
+  bar = "",
+  Stimulus = c("None of the stimulus",
+                   "cold and mechanical" ,
+                   "cold",
+                   "hot"),
+  value = c(2, 2, 1, 1)
+)
+
+cold_PN_palette <- c("None of the stimulus" = "#D55E00", 
+                "cold and mechanical" = "#009E73",
+                "cold" = "#CC79A7",
+                "hot" = "#56B4E9")
+
+ #"cold and heat sensitive" = "#999999")
+
+
+library(ggplot2)
+###
+cold_bar_PNs <- ggplot(cold_PNs, aes(x = bar, y = value, fill = Stimulus)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = value),
+            position = position_stack(vjust = 0.5),
+            color = "white", size = 3.5) +
+  scale_fill_manual(values = cold_PN_palette) +
+  labs(
+    title = "Stimulus that evoked IPSC in cold-selective neurons",
+    x = "",
+    y = "Number of neurons"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 12),
+    plot.title = element_text(size = 16, face = "bold")
+  )+
+  theme(
+    plot.title = element_text(hjust = 0, face = "bold", size = 12),
+    axis.text = element_text(color = "black", size = 10),
+    axis.title = element_text(face = "plain", size = 11),
+    axis.line = element_line(linewidth = 0.4),
+    axis.ticks = element_line(linewidth = 0.4)
+  )
+
+
+cold_bar_PNs
+
+ggsave(
+  "C:/Users/silic/Desktop/cold_bar_PNs.png",
+  plot = cold_bar_PNs,
+  width = 5,
+  height = 6,
+  dpi = 300)
+
+```
+
+```{r}
+# try plot a bar chart that combined all subtypoes of PNS, and their inhibitory inputs#
+
+
+
+library(ggplot2)
+
+cold_PNs <- data.frame(
+  bar = "cold_PNs",
+  Stimulus = c("None of the stimulus",
+                   "cold and mechanical" ,
+                   "cold",
+                   "heat"),
+  value = c(2, 2, 1, 1)
+)
+
+
+mechanical_PNs <- data.frame(
+  bar = "mechanical_PNs",
+  Stimulus = c("None of the stimulus",
+                   "cold and mechanical" ,
+                   "mechanical",
+                   "mechanical, cold, and heat"),
+  value = c(3, 2, 3, 4)
+)
+
+
+
+mechanical_cold_PNs <- data.frame(
+  bar = "mechanical_cold_PNs",
+  Stimulus = c("None of the stimulus",
+               "cold and heat",
+                   "cold and mechanical" ,
+                   "mechanical"),
+  value = c(1, 1, 1, 2)
+)
+
+
+mechanical_cold_hot_PNs <- data.frame(
+  bar = "mechanical_cold_hot_PNs",
+  Stimulus = c("cold and mechanical",
+                "mechanical, cold, and heat"),
+  value = c(1, 1)
+)
+
+cold_hot_PNs <- data.frame(
+  bar = "cold_hot_PNs",
+  Stimulus = c("None of the stimulus"),
+  value = c(1)
+)
+
+
+df <- rbind(cold_PNs, 
+            mechanical_cold_PNs, 
+            mechanical_PNs, 
+            mechanical_cold_hot_PNs,
+            cold_hot_PNs)
+
+
+cb_palette <- c(
+  "None of the stimulus" = "#999999",
+  "cold and mechanical" = "#56B4E9",
+  "mechanical" = "#009E73",
+  "mechanical, cold, and heat" = "#F0E442",
+   "cold and heat" = "#CC79A7",
+  "cold" = "#000000",
+  "heat" =  "#E69F00")
+
+
+View(df)
+oldcb_palette <- c(
+  "cold" = "#999999",
+  "hot" = "#56B4E9",
+  "mechanical" = "#009E73",
+  "cold_innocuous" = "#F0E442",
+  "cold_pain" = "#0072B2",
+  "heat_pain" = "#D55E00",
+  "mech_innocuous" = "#CC79A7",
+  "mech_pain" = "#E69F00",
+  "warm_innocuous" = "#000000",
+  "innocuous" = "#009E73",
+  "pain" = "#D55E00"
+)
+
+# ==== PLOT ====
+
+IPSC_bar<- ggplot(df, aes(x = bar, y = value, fill = Stimulus)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = value),
+            position = position_stack(vjust = 0.5),
+            color = "white", size = 3.5) +
+  scale_fill_manual(values = cb_palette) +
+  labs(
+    title = "Stimulus that evoked IPSC \ngrouped by response properties of PNs",
+    x = "",
+    y = "Number of neurons"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 12),
+    plot.title = element_text(size = 16, face = "bold")
+  )+
+  scale_y_continuous(breaks = seq(0, 600, by = 50))+
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 12),
+    axis.text = element_text(color = "black", size = 10),
+    axis.title = element_text(face = "plain", size = 11),
+    axis.line = element_line(linewidth = 0.4),
+    axis.ticks = element_line(linewidth = 0.4),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+
+
+
+ggsave(
+  "C:/Users/silic/Desktop/ipsc_bar.png",
+  plot = IPSC_bar,
+  width = 8,
+  height = 5,
+  dpi = 300
+)
+
+```
