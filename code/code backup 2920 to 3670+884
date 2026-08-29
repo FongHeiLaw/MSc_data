@@ -1,0 +1,2792 @@
+```{r}
+
+library(ggrepel)
+
+plot_data <- z_score_epsc_below3 |>
+  left_join(z_wide_amp_mean |> select(global_cell_number, cluster_k4), by = "global_cell_number")
+
+plot_data$narrow_type <- as.factor(plot_data$narrow_type)
+
+# get just the last stimulus point per cell, to place the label there
+label_data <- plot_data |>
+  group_by(global_cell_number) |>
+  filter(narrow_type == last(levels(narrow_type)))  # adjust if narrow_type isn't a factor with defined level order
+
+cluster_amp_labeled_mean <- ggplot(plot_data, aes(x = narrow_type, 
+                      y = mean_z_score_amp_standard, 
+                      group = global_cell_number)) +
+  geom_line(alpha = 0.4, color = "grey40") +
+  geom_point(aes(color = narrow_type), size = 2) +
+  geom_text_repel(data = label_data, aes(label = global_cell_number), 
+                   size = 5, color = "black", max.overlaps = Inf, 
+                   segment.size = 0.2, segment.color = "grey60") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey50") +
+  facet_wrap(~ cluster_k4, scales = "free_y") +
+  theme_minimal() +
+  labs(x = "Stimulus", y = "Z-score (mean amplitude)", title = "Mean amplitude response profile by cluster")+
+  theme(
+    legend.position = "none",
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 20),
+    axis.text = element_text(color = "black", size = 20),
+    axis.title = element_text(face = "plain", size = 20),
+    axis.line = element_line(linewidth = 0.4),
+    axis.ticks = element_line(linewidth = 0.4)
+  )
+
+ggsave("C:/Users/silic/Desktop/cluster_amp_labeled_mean.png", 
+       plot = cluster_amp_labeled_mean, width = 15, height = 10, dpi = 600)
+
+
+###
+
+
+
+
+
+
+
+# now try amplitde cluster
+
+### Step 1: reshape to wide format — one row per cell, one column per stimulus/narrow_type
+z_wide_amp <- z_score_epsc_below3 |>
+  select(global_cell_number, narrow_type, mean_z_score_amp_robust) |>
+  pivot_wider(names_from = narrow_type, values_from = mean_z_score_amp_robust)
+
+nrow(z_wide_amp)   # should equal your total number of cells now, no rows lost
+
+### Step 2: scale features (so no single stimulus dominates due to larger variance) and cluster
+features <- z_wide_amp |> select(-global_cell_number) |> scale()
+
+dist_matrix <- dist(features, method = "euclidean")
+hc <- hclust(dist_matrix, method = "ward.D2")
+
+dendo_amp <- plot(hc, labels = z_wide_amp$global_cell_number, main = "Cell clustering by z-score amplitude profile")
+
+ggsave("C:/Users/silic/Desktop/dendogram_plot_amp.png", 
+       plot = dendo_amp, width = 15, height = 10, dpi = 600)
+
+
+#######################
+clusters_k2 <- cutree(hc, k = 2)
+clusters_k4 <- cutree(hc, k = 4)
+
+z_wide_amp$cluster_k2 <- factor(clusters_k2)
+z_wide_amp$cluster_k4 <- factor(clusters_k4)
+
+###
+
+
+library(ggrepel)
+
+plot_data <- z_score_epsc_below3 |>
+  left_join(z_wide_amp |> select(global_cell_number, cluster_k4), by = "global_cell_number")
+
+plot_data$narrow_type <- as.factor(plot_data$narrow_type)
+
+# get just the last stimulus point per cell, to place the label there
+label_data <- plot_data |>
+  group_by(global_cell_number) |>
+  filter(narrow_type == last(levels(narrow_type)))  # adjust if narrow_type isn't a factor with defined level order
+
+cluster_amp_labeled <- ggplot(plot_data, aes(x = narrow_type, 
+                      y = mean_z_score_amp_robust, 
+                      group = global_cell_number)) +
+  geom_line(alpha = 0.4, color = "grey40") +
+  geom_point(aes(color = narrow_type), size = 2) +
+  geom_text_repel(data = label_data, aes(label = global_cell_number), 
+                   size = 5, color = "black", max.overlaps = Inf, 
+                   segment.size = 0.2, segment.color = "grey60") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey50") +
+  facet_wrap(~ cluster_k4, scales = "free_y") +
+  theme_minimal() +
+  labs(x = "Stimulus", y = "Z-score (median amplitude)", title = "Median amplitude response profile by cluster")+
+  theme(
+    legend.position = "none",
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 20),
+    axis.text = element_text(color = "black", size = 20),
+    axis.title = element_text(face = "plain", size = 20),
+    axis.line = element_line(linewidth = 0.4),
+    axis.ticks = element_line(linewidth = 0.4)
+  )
+
+ggsave("C:/Users/silic/Desktop/cluster_amp_labeled.png", 
+       plot = cluster_amp_labeled, width = 15, height = 10, dpi = 600)
+
+
+
+####
+
+
+
+
+# old code with wrong z score
+
+
+post_bins_freq <- df_separated |>
+  filter(!is.na(amplitude), pre_or_post == "post") |>
+  mutate(
+    bin = case_when(
+      event_time >= stim_start + 0 & event_time < stim_start + 1 ~ 0,
+      event_time >= stim_start + 1 & event_time < stim_start + 2 ~ 1,
+      event_time >= stim_start + 2 & event_time < stim_start + 3 ~ 2,
+      event_time >= stim_start + 3 & event_time < stim_start + 4 ~ 3,
+      event_time >= stim_start + 4 & event_time < stim_start + 5 ~ 4,
+      TRUE ~ NA_real_
+    )
+  )|>
+  filter(!is.na(bin)) |>                              
+  group_by(file_prefix, event_type, bin) |>
+  summarise(n_events_in_bin = n(), .groups = "drop") |>
+  group_by(file_prefix, event_type) |>
+  complete(bin = 0:4, fill = list(n_events_in_bin = 0)) |>
+  summarise(
+    mean_pre_freq = mean(n_events_in_bin),
+    sd_pre_freq   = sd(n_events_in_bin),
+    .groups = "drop"
+  )
+
+
+z_scores <- z_scores |>
+  left_join(
+    df_separated |> distinct(file_prefix, 
+                             global_cell_number, 
+                             broad_type, 
+                             narrow_type),
+    by = "file_prefix"
+  )
+
+View(z_scores)
+
+# save
+write.csv(z_scores,"C:/Users/silic/Desktop/z_scores_all_v2.csv",row.names = FALSE)
+
+## try see group of narrow type repetiiton
+z_scores |>
+  group_by(global_cell_number, narrow_type) |>
+  summarise(n_rows = n(), .groups = "drop")
+
+# try average z score
+z_scores_avg <- z_scores |>
+  group_by(global_cell_number, event_type, narrow_type) |>
+  summarise(
+    mean_z_score_freq         = mean(z_score_freq, na.rm = TRUE),
+    mean_z_score_amp_standard = mean(z_score_amp_standard, na.rm = TRUE),
+    mean_z_score_amp_robust   = mean(z_score_amp_robust, na.rm = TRUE),
+    n_recordings              = n(),
+    .groups = "drop"
+  )
+
+View(z_score_epsc)
+
+z_score_epsc <- z_scores_avg[z_scores_avg$event_type %in% -70,]
+
+z_score_group <- z_score_epsc |>
+  group_by(global_cell_number) |>
+  summarise(n_rows = n(), .groups = "drop")
+
+z_score_group <- z_score_group |> 
+  arrange(n_rows)
+
+View(z_score_group)
+
+## see balance of the dataset before I classify
+### 4. For each cell, get the set of distinct narrow_types it has
+cell_narrow_type_coverage <- z_score_epsc  |>
+  group_by(global_cell_number) |>
+  summarise(
+    n_narrow_types = n_distinct(narrow_type),
+    narrow_types_present = paste(sort(unique(narrow_type)), collapse = ", "),
+    .groups = "drop"
+  )
+
+View(cell_narrow_type_coverage)
+
+### 5. Balance summary: how many cells have 1 narrow_type, 2, ..., all 6
+cell_narrow_type_coverage <- cell_narrow_type_coverage |>
+  arrange(n_narrow_types)
+
+
+# filter narrow type >= 3
+cell_narrow_type_coverage <- cell_narrow_type_coverage[cell_narrow_type_coverage$n_narrow_types>=3,]
+# cell 4,6,7,8, 22,34,11,31
+
+View(cell_narrow_type_coverage)
+
+
+# cell 32  (filter only those cell that has three types of therm, mech, heat, cold)
+cell_narrow_type_coverage <- cell_narrow_type_coverage[!cell_narrow_type_coverage$global_cell_number==32,]
+
+
+# (26,27 does not have cold pain)
+# save
+write.csv(cell_narrow_type_coverage,"C:/Users/silic/Desktop/cell_narrow_type_coverage.csv",row.names = FALSE)
+
+
+z_score_epsc <- z_score_epsc[z_score_epsc$global_cell_number %in% cell_narrow_type_coverage$global_cell_number,]
+View(z_score_epsc)# 138 entries
+
+library(ggplot2)
+library(ggplot2)
+library(scales)
+
+z_score_epsc$narrow_type <- as.factor(z_score_epsc$narrow_type)
+
+z_score_epsc
+
+# separate into three plots three facetr
+# filter narrow type >= 3
+cell_narrow_type_coverage_below3 <- cell_narrow_type_coverage[cell_narrow_type_coverage$n_narrow_types<=3,]
+
+z_score_epsc_below3 <- z_score_epsc[z_score_epsc$global_cell_number %in% cell_narrow_type_coverage_below3$global_cell_number,]
+
+
+z_score_plot<- ggplot(z_score_epsc_below3, aes(x = narrow_type, y = mean_z_score_freq, color = narrow_type)) +
+  geom_point(size = 2) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey50") +
+  facet_wrap(~ global_cell_number, ncol = 6, scales = "free_y") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 6),
+    axis.text.y = element_text(size = 12),
+    strip.text = element_text(size = 8),
+    legend.position = "bottom"
+  ) +
+  labs(x = "Narrow type", y = "Z-score (frequency)", color = "Narrow type",
+       title = "Frequency z-score by narrow type, faceted by cell")
+
+z_score_plot
+
+ggsave("C:/Users/silic/Desktop/z_score_by_narrow_type_per_cell_below3.png", 
+       plot = z_score_plot, width = 16, height = 20, dpi = 300)
+#View(post_bins_freq)
+
+# save
+write.csv(post_bins_freq,"C:/Users/silic/Desktop/post_bins_freq.csv",row.names = FALSE)
+
+
+# save
+#write.csv(post_bins_freq,"C:/Users/silic/Desktop/post_bins_freq+try_complete_fu#nction.csv",row.names = FALSE)
+
+
+
+
+#############################
+
+
+# save 898 oversbeation
+write.csv(final_table_clean,"C:/Users/silic/Desktop/final_table_clean.csv",row.names = FALSE)
+
+
+
+
+
+#####
+
+
+#summary_df <- df |>
+#  group_by(file_prefix, event_type, pre_or_post) |>
+#  summarise(
+#    n_events = n(),
+    # if it is baseline, use 5 seconds to average, otherwise, use the stored column of post stim t (1/2second)
+#    duration = if (first(pre_or_post) == "pre") {5
+#      } else {first(stim_period_duration)
+#        }, 
+    # need to take the first appeared duraction in this recording file, otherwise has error cpz size 1092
+#    freq = n_events / duration,
+#    mean_amp = mean(amplitude, na.rm = TRUE),   # if there are no events in the row, amplitude is na, then this program will delete the events, na.rm = true means delete na
+#    median_amp = median(amplitude, na.rm = TRUE),
+#    .groups = "drop"
+#  )
+
+
+View(summary_df_sorted)
+
+summary_df_sorted <- summary_df %>%
+  arrange(n_events)
+
+
+# save 898 oversbeation
+write.csv(summary_df,"C:/Users/silic/Desktop/summary_df_v3.csv",row.names = FALSE)
+summary(summary_df)
+
+
+# store the pre stim and post stim frequency
+MI_freq <- summary_df |>
+  select(file_prefix, event_type, pre_or_post, freq) |>
+  pivot_wider(
+    names_from = pre_or_post,
+    values_from = freq
+  ) |>
+  mutate(
+    MI_freq = (post - pre) / (post + pre)
+  )
+
+# sanity check
+
+####
+sanity_MI_freq <- MI_freq |>
+  summarise(
+    n = n(),
+    n_positive = sum(MI_freq > 0, na.rm = TRUE),
+    n_negative = sum(MI_freq < 0, na.rm = TRUE),
+    n_zero = sum(MI_freq == 0, na.rm = TRUE),
+    n_NA = sum(is.na(MI_freq))
+  )
+# 1na, 470 positive
+
+
+names(MI_freq)
+
+MI_freq_epsc <- MI_freq[MI_freq$event_type == "-70",]
+
+```
+
+```{r}
+
+MI_freq_epsc_backup <- MI_freq_epsc
+
+MI_wide <- MI_freq_epsc %>%
+  select(file_prefix, event_type, MI_freq) %>%
+  pivot_wider(
+    names_from = event_type,
+    values_from = MI_freq,
+    names_prefix = "MI_freq_"
+  )
+
+# check how many cells this affects
+MI_wide %>% summarise(across(starts_with("MI_freq"), ~sum(is.na(.))))
+
+# option A: drop cells with any missing MI
+MI_complete <- MI_wide %>% drop_na()
+
+# option B: impute (e.g. 0, meaning "no change") — only justifiable if 
+# 0/0 genuinely means "no activity either way", not "missing data"
+
+
+mat <- MI_complete %>% 
+  select(-file_prefix) %>% 
+  scale()
+
+
+library(factoextra)
+fviz_nbclust(mat, kmeans, method = "wss")       # elbow
+
+
+set.seed(42)
+km <- kmeans(mat, centers = 2, nstart = 25)
+
+MI_complete$cluster <- factor(km$cluster)
+
+dim(mat)
+ncol(mat)
+colnames(mat)
+
+
+fviz_cluster(km, data = mat, geom = "point")
+
+
+
+
+###
+# 241 rows, 34 variables
+MI_freq_epsc_joined <- MI_freq_epsc  %>%
+  left_join(meta %>% select(file_name_clean, broad_type, narrow_type, 
+                            Cell, date, year, month, response_notebook, stim_onset_ch2,
+                            stim_onset_ch3, stim_offset_ch2,
+                            stim_offset_ch3,total_length_sec,
+                            sweep_length_sec, sweep_count, temp, force, type, include, 
+                            genotype, comment, channel_count, channel_units, estim,
+                            recording_number,
+                            channel_mes, quality),
+            by = c("file_prefix" = "file_name_clean")
+            )
+
+
+
+names(MI_freq_epsc_joined)
+
+
+df <- MI_freq_epsc_joined %>%
+  mutate(record_date = substr(file_prefix, 1, 10))
+
+cell_lookup <- df %>%
+  distinct(record_date, Cell) %>%
+  arrange(record_date, Cell) %>%
+  mutate(global_cell_number = row_number())
+
+df <- df %>%
+  left_join(cell_lookup, by = c("record_date", "Cell"))
+
+
+View(df)
+
+# save 898 oversbeation
+write.csv(df,"C:/Users/silic/Desktop/MI_freq_with_meta.csv",row.names = FALSE)
+
+
+
+
+df_sorted <- df %>%
+  arrange(
+    pre)
+
+View(df_sorted)
+
+cell_map <- df %>% distinct(file_prefix, global_cell_number, broad_type)
+
+
+
+
+
+
+
+```
+
+```{r}
+# check sign consistency PER event_type
+df %>%
+  group_by(event_type) %>%
+  summarise(min_amp = min(amplitude, na.rm = TRUE),
+            max_amp = max(amplitude, na.rm = TRUE))
+
+
+
+View(df)
+
+df_big_amp <- df[df$amplitude <7.6,]
+df_big_amp <- df_big_amp[df_big_amp$amplitude >7.59,]
+
+
+names(df)
+
+summary(df$amplitude)
+
+# save 898 oversbeation
+write.csv(df_big_amp,"C:/Users/silic/Desktop/df_big_amp_v17.csv",row.names = FALSE)
+
+
+
+
+
+
+View(df_big_amp)
+# check if pre/post sign flips for the same cell+event_type
+summary_df %>%
+  group_by(file_prefix, event_type) %>%
+  summarise(sign_flip = n_distinct(sign(mean_amp)) > 1, .groups = "drop") %>%
+  filter(sign_flip)
+```
+
+```{r}
+library(dplyr)
+library(stringr)
+
+
+#final_table_stim$stim_period[final_table_stim$broad_type %in% "hot"] <- 2
+final_table_stim$stim_period_duration[final_table_stim$broad_type %in% "hot"] <- 2
+# 272896 NA after assigning 
+
+final_table_stim$stim_period_duration[final_table_stim$broad_type %in% "cold"] <- 2
+# 169564 NA after assigning to cold
+
+final_table_stim$stim_period_duration[final_table_stim$broad_type %in% "mechanical"] <- 1
+# 0 NA
+
+unique(final_table_stim$recording_number) # 86 elements
+
+write.csv(final_table_stim,"C:/Users/silic/Desktop/final_table_stim.csv",
+          row.names = FALSE)
+
+library(readr)
+
+
+
+summary_table <- final_table_stim |>
+  summarise(across(everything(), n_distinct))
+
+View(summary_table)
+# 86 unique recording numbers, from how many unique date?
+
+# back up dataframe
+backup_final_stim <- final_table_stim
+
+# create record date column so that I can count how many day (animal)
+final_table_stim_with_date <- final_table_stim |>
+  mutate(record_date = substr(file_prefix, 1, 10))
+
+###
+cell_summary <- final_table_stim_with_date |>
+  group_by(record_date) |>
+  summarise(n_unique_cells = n_distinct(Cell))
+
+summary(cell_summary$n_unique_cells)
+##########################  
+#The final dataset contains recordings from 1-4 cells per animal per experimental day (mean = 2.2, #median = 2) 
+############################
+
+#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+#  1.000   2.000   2.000   2.217   3.000   4.000 
+
+
+cell_lookup <- final_table_stim_with_date |>
+  distinct(record_date, Cell)|>
+  arrange(record_date, Cell) |>
+  mutate(global_cell_number = row_number())
+# a total of 51 cells were included in analysis to test the main hypothesis
+
+
+
+final_table_stim_with_date_with_cell <- final_table_stim_with_date |>
+  left_join(cell_lookup, by = c("record_date", "Cell"))
+
+# update stim period end time, stijmulus time (absolute seconds from t=0) + stim period (1 or 2s)
+final_table_stim_with_date_with_cell$stim_period_end_time <-final_table_stim_with_date_with_cell$stim_abs_time + final_table_stim_with_date_with_cell$stim_period_duration
+
+
+# The final dataset included data from 23 experimental days
+unique(final_table_stim_with_date_with_cell$record_date)
+
+# date of unique experimental day
+# [1] "2023_02_08" "2023_02_28" "2023_08_10" "2023_08_16" "2023_08_18" "2023_08_23" "2023_08_31"
+# [8] "2023_12_20" "2024_05_17" "2024_05_23" "2024_06_06" "2024_06_20" "2024_06_25" "2024_08_27"
+#[15] "2025_01_16" "2026_01_13" "2026_01_14" "2026_01_20" "2026_01_22" "2026_04_16" "2026_04_23"
+#[22] "2026_04_28" "2026_06_04"
+
+
+unique(df_true_amp_time_decrease$file_prefix)
+
+#save
+write.csv(final_table_stim_with_date_with_cell,"C:/Users/silic/Desktop/final_table_stim_with_date_with_cell.csv",row.names = FALSE)
+
+
+###
+library(readr)
+
+
+recording_summary <- final_table_stim_with_date_with_cell |>
+  group_by(record_date) |>
+  summarise(n_recordings = n_distinct(file_prefix))
+
+summary(recording_summary$n_recordings)
+#The final dataset (without noise) includes 3-80 recordings from each day (mean 19.5, median 16)
+
+#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+#   3.00   10.50   16.00   19.52   23.00   80.00 
+
+
+# A total of 477 (.abf) recordings were included in event detection. Among the recordingsm 107, 62, and 308 of those were from thermal stimulator, mechanical stimulator, and 4 times stimulation protocol. (23 experimental days)
+# There were 236 and 241 recordings in IPSC and EPSC respectively. IPSC recordings were held at 0mV (except 3 recordings were held at 0mV), while EPSC recordings were held at -70mV.
+# The number of events detected range from 0 to 2782 events per recording (5 files have zero detected events) (mean = 1067, median = 972)
+
+
+#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+#      0     654     972    1067    1452    2782 
+
+
+#The manual threshold was drawn at -150 and 100 (this threshold was not intend to be meaningful). #Because we wanted to use the github published code as much as possible, we had to set a manual #threshold input argument. Thus, we chose a threshold that were far from the detected peak so that #no peak were selected based on this universal threshold. This threshold was chosen after manually #inspect all recordings and the overlay events to make sure the threshold is okay.
+
+
+## number of detected events by IPSC/EPSC
+# 236 recordings of IPSC, events (min:0, max: 2311, median: 849.5, mean:890.8, 1stQR: 555.2, 3rdQR, 1192.8)
+# 241 recordings of EPSC, events (min:98, max: 2782, median: 1095, mean: 1239: 1stQR: 814, 3rdQR, 1643)
+
+
+# 
+mech_sum_log <- read.csv("C:/Users/silic/Desktop/master_project_updated_pipeline_backup/event_counts_summary_mechanical.csv")
+four_stim_sum_log <- read.csv("C:/Users/silic/Desktop/master_project_updated_pipeline_backup/event_counts_summary_4stim.csv")
+thermal_sum_log <- read.csv("C:/Users/silic/Desktop/master_project_updated_pipeline_backup/event_counts_summary_thermal.csv")
+
+log_all <- rbind(mech_sum_log, thermal_sum_log, four_stim_sum_log)
+log_all <- log_all |>
+  mutate(record_date = substr(file_prefix, 1, 10))
+unique(log_all$record_date)
+
+
+#log_all$mV <- as.factor(log_all$mV)
+#log_all$n_events_saved <- as.numeric(log_all$n_events_saved)
+#summary(log_all$n_events_saved)
+
+### change 10mV back to 0mV
+#log_all$mV [log_all$mV %in% "10"] <- 0
+#summary(log_all$mV)
+
+ipsc <- log_all |> filter(mV == 0)
+summary(ipsc)
+
+#n_events_saved  
+#Min.   :   0.0  
+#1st Qu.: 555.2  
+#Median : 849.5  
+#Mean   : 890.8  
+#3rd Qu.:1192.8  
+#Max.   :2311.0  
+
+epsc <- log_all |> filter(mV == -70)
+summary(epsc)
+
+#Min.   :  98  
+#1st Qu.: 814  
+#Median :1095  
+#Mean   :1239  
+#3rd Qu.:1643  
+#Max.   :2782
+
+
+# 225 -> -70mV, 
+
+
+final_table_stim$stim_period_duration[final_table_stim$broad_type %in% "mechanical"] <- 1
+# 0 NA
+
+
+#sum(is.na(final_table_stim$stim_period_duration))
+
+```
+
+```{r}
+# modulateion index, hypothesis testing, main analysis
+
+#save
+#write.csv(final_table_stim_with_date_with_cell,"C:/Users/silic/Desktop/final_table_stim_with_date_wi#th_cell.csv",row.names = FALSE)
+
+
+```
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(ggdist)
+
+#493583
+analysis <- readr::read_csv("C:/Users/silic/Desktop/final_table_stim_with_date_with_cell.csv")
+
+analysis <- data_all_new
+
+###
+# rejoin the mV column, had a bug in github code, did not bind mV column coz df name wrong
+# import metadata, 44 variables, updated df including broad_type and narrow_type column names, replaced +10mV to 0mV
+meta <- read.csv("C:/Users/silic/Desktop/master_project_updated_pipeline_backup/metadata_with_base_name_23_to_26_updated.csv")
+
+meta <- meta |>
+  mutate(file_name_clean = sub("\\.abf$", "", file_name, ignore.case = TRUE))
+
+meta$file_name_clean
+
+final_table_stim_with_date_with_cell <- analysis |>
+  left_join(meta |> select(file_name_clean, mV), by = c("file_prefix" = "file_name_clean"))
+
+# save
+write.csv(final_table_stim_with_date_with_cell,"C:/Users/silic/Desktop/final_table_stim_with_date_with_cell_v2.csv",row.names = FALSE)
+
+names(final_table_stim_with_date_with_cell)
+######
+
+df <- final_table_stim_with_date_with_cell
+
+
+
+df <- df |>
+  rename(
+    event_time   = 'Event.Time..s.',
+    amplitude    = 'Amplitude..pA.',
+    event_type   = mV,       
+    stim_start   = stim_abs_time,
+    baseline_start = baseline_period_start_time
+  )
+
+
+# calculate pre/post from event time vs stimulus time, still same nrow
+df <- df |>
+  mutate(
+    pre_or_post = ifelse(event_time > stim_start, "post", "pre"),
+    amplitude = abs(amplitude)
+  ) |>
+  filter(!is.na(pre_or_post))
+
+
+
+# ensure data type
+df <- df |>
+  mutate(
+    file_prefix  = as.factor(file_prefix),
+    event_type = as.factor(event_type)   # event type is EPSC/ IPSC, number eitehr 0 or -70mV
+  )
+
+# save
+write.csv(df,"C:/Users/silic/Desktop/df.csv",row.names = FALSE)
+
+
+
+
+summary_df <- df |>
+  group_by(file_prefix, event_type, pre_or_post) |>
+  summarise(
+    n_events = n(),
+    # if it is baseline, use 5 seconds to average, otherwise, use the stored column of post stim t (1/2second)
+    duration = if (first(pre_or_post) == "pre") {5
+      } else {first(stim_period_duration)
+        }, 
+    # need to take the first appeared duraction in this recording file, otherwise has error cpz size 1092
+    freq = n_events / duration,
+    mean_amp = mean(amplitude, na.rm = TRUE),   # if there are no events in the row, amplitude is na, then this program will delete the events, na.rm = true means delete na
+    median_amp = median(amplitude, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# save 898 oversbeation
+write.csv(summary_df,"C:/Users/silic/Desktop/summary_df.csv",row.names = FALSE)
+
+# store the pre stim and post stim frequency
+MI_freq <- summary_df |>
+  select(file_prefix, event_type, pre_or_post, freq) |>
+  pivot_wider(
+    names_from = pre_or_post,
+    values_from = freq
+  ) |>
+  mutate(
+    MI_freq = (post - pre) / (post + pre)
+  )
+
+# sanity check
+
+####
+sanity_MI_freq <- MI_freq |>
+  summarise(
+    n = n(),
+    n_positive = sum(MI_freq > 0, na.rm = TRUE),
+    n_negative = sum(MI_freq < 0, na.rm = TRUE),
+    n_zero = sum(MI_freq == 0, na.rm = TRUE),
+    n_NA = sum(is.na(MI_freq))
+  )
+# all positive
+
+####
+# store the pre stim and post stim amp
+MI_mean_amp <- summary_df |>
+  select(file_prefix, event_type, pre_or_post, mean_amp) |>
+  pivot_wider(
+    names_from = pre_or_post,
+    values_from = mean_amp
+  ) |>
+  mutate(
+    MI_mean_amp = (post - pre) / (post + pre)
+  )
+
+
+
+# sanity check mean amp
+
+####
+sanity_mean_amp <- MI_mean_amp |>
+  summarise(
+    n = n(),
+    n_positive = sum(MI_mean_amp > 0, na.rm = TRUE),
+    n_negative = sum(MI_mean_amp < 0, na.rm = TRUE),
+    n_zero = sum(MI_mean_amp == 0, na.rm = TRUE),
+    n_NA = sum(is.na(MI_mean_amp))
+  )
+
+# 330 positive, 119 negative
+
+
+### median
+
+####
+# store the pre stim and post stim amp, median
+MI_median_amp <- summary_df |>
+  select(file_prefix, event_type, pre_or_post, median_amp) |>
+  pivot_wider(
+    names_from = pre_or_post,
+    values_from = median_amp
+  ) |>
+  mutate(
+    MI_median_amp = (post - pre) / (post + pre)
+  )
+
+
+
+# sanity check medan amp
+
+####
+sanity_median_amp <- MI_median_amp |>
+  summarise(
+    n = n(),
+    n_positive = sum(MI_median_amp > 0, na.rm = TRUE),
+    n_negative = sum(MI_median_amp < 0, na.rm = TRUE),
+    n_zero = sum(MI_median_amp == 0, na.rm = TRUE),
+    n_NA = sum(is.na(MI_median_amp))
+  )
+
+# 307 positive, 142 negative
+
+
+## now join three saved result table of MI togetehr, start with a small one MI freq, hen join
+
+MI_all <- MI_freq |>
+  select(file_prefix, event_type, MI_freq) |>
+  left_join(
+    MI_mean_amp |>
+      select(file_prefix, event_type, MI_mean_amp),
+    by = c("file_prefix", "event_type")
+  ) |>
+  left_join(
+    MI_median_amp |>
+      select(file_prefix, event_type, MI_median_amp),
+    by = c("file_prefix", "event_type")
+  )
+
+
+
+# raincloud plot
+
+p1 <- ggplot(MI_all, aes(x = event_type, y = MI_freq, fill = event_type)) +
+  #geom_violin(width = 0.8,alpha = 0.6, outlier.shape = NA) +
+  geom_boxplot(width = 0.8,alpha = 0.8,outlier.shape = NA) +
+  #geom_boxplot(width = 0.5, alpha = 0.7) +
+  geom_jitter(width = 0.1, alpha = 0.15) +
+  theme_minimal() +
+  labs(title = "Modulation Index of frequency", x = NULL, y = "Modulation Index (-1 to 1)")+
+  scale_fill_manual(values = c("0" = "#0072B2", "-70" = "#E69F00")) +
+  scale_x_discrete(labels = c("0" = "IPSC", "-70" = "EPSC")) +
+  theme_classic(base_size = 11) +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 12),
+    axis.text = element_text(color = "black", size = 12),
+    axis.title = element_text(face = "plain", size = 12),
+    axis.line = element_line(linewidth = 0.4),
+    axis.ticks = element_line(linewidth = 0.4)
+  )
+p1
+
+
+ggsave("C:/Users/silic/Desktop/p1_MI_freq.tiff", p1, 
+       height = 3.5, width = 4.5,  units = "in", dpi = 300)
+
+
+  
+ggsave(
+  "C:/Users/silic/Desktop/p1_MI_freq.png",
+  plot = p1,
+  width = 4.5,
+  height = 3.5,
+  dpi = 300
+)
+
+
+
+
+p2 <- ggplot(MI_all, aes(x = event_type, y = MI_mean_amp, fill = event_type)) +
+  geom_boxplot(width = 0.8,alpha = 0.8,outlier.shape = NA) +
+  #geom_boxplot(width = 0.5, alpha = 0.7) +
+  geom_jitter(width = 0.1, alpha = 0.15) +
+  theme_minimal() +
+  labs(title = "Modulation Index of mean amplitude", x = NULL, y = "Modulation Index (-1 to 1)")+
+  scale_fill_manual(values = c("0" = "#0072B2", "-70" = "#E69F00")) +
+  scale_x_discrete(labels = c("0" = "IPSC", "-70" = "EPSC")) +
+  theme_classic(base_size = 11) +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 12),
+    axis.text = element_text(color = "black", size = 12),
+    axis.title = element_text(face = "plain", size = 12),
+    axis.line = element_line(linewidth = 0.4),
+    axis.ticks = element_line(linewidth = 0.4)
+  )
+
+
+
+p3 <- ggplot(MI_all, aes(x = event_type, y = MI_median_amp, fill = event_type)) +
+  geom_boxplot(width = 0.8,alpha = 0.8,outlier.shape = NA) +
+  #geom_boxplot(width = 0.5, alpha = 0.7) +
+  geom_jitter(width = 0.1, alpha = 0.15) +
+  theme_minimal() +
+  labs(title = "Modulation Index of median amplitude", x = NULL, y = "Modulation Index (-1 to 1)")+
+  scale_fill_manual(values = c("0" = "#0072B2", "-70" = "#E69F00")) +
+  scale_x_discrete(labels = c("0" = "IPSC", "-70" = "EPSC")) +
+  theme_classic(base_size = 11) +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 12),
+    axis.text = element_text(color = "black", size = 12),
+    axis.title = element_text(face = "plain", size = 12),
+    axis.line = element_line(linewidth = 0.4),
+    axis.ticks = element_line(linewidth = 0.4)
+  )
+
+
+# save p2 mean ##########
+ggsave("C:/Users/silic/Desktop/p2_MI_mean_amp.tiff", p2, 
+       height = 3.5, width = 4.5,  units = "in", dpi = 300)
+
+ggsave(
+  "C:/Users/silic/Desktop/p2_MI_mean_amp.png",
+  plot = p2,
+  width = 4.5,
+  height = 3.5,
+  dpi = 300
+)
+
+# save p3 median ############
+
+ggsave("C:/Users/silic/Desktop/p3_MI_median_amp.tiff", p3, 
+       height = 3.5, width = 4.5,  units = "in", dpi = 300)
+
+
+  
+ggsave(
+  "C:/Users/silic/Desktop/p3_MI_median_amp.png",
+  plot = p3,
+  width = 4.5,
+  height = 3.5,
+  dpi = 300
+)
+
+```
+
+```{r}
+library(lme4)
+library(lmerTest)
+
+
+# create record date column so that I can count how many day (animal was used)
+MI_freq_with_date <- MI_freq  %>%
+  mutate(record_date = substr(file_prefix, 1, 10))
+
+
+MI_mean_amp_with_date <- MI_mean_amp  %>%
+  mutate(record_date = substr(file_prefix, 1, 10))
+
+MI_median_amp_with_date <- MI_median_amp  %>%
+  mutate(record_date = substr(file_prefix, 1, 10))
+
+
+MI_freq_with_date$record_date <- as.factor(MI_freq_with_date$record_date)
+MI_mean_amp_with_date$record_date <- as.factor(MI_mean_amp_with_date$record_date)
+MI_median_amp_with_date$record_date <- as.factor(MI_median_amp_with_date$record_date)
+
+model_freq <- lmer(
+  MI_freq ~ event_type + (1 | MI_freq_with_date$record_date),
+  data = MI_freq
+)
+
+summary(model_freq)
+
+model_mean_amp <- lmer(
+  MI_mean_amp ~ event_type + (1 | MI_mean_amp_with_date$record_date),
+  data = MI_mean_amp_with_date
+)
+summary(model_mean_amp)
+
+
+model_median_amp <- lmer(
+  MI_median_amp ~ event_type + (1 | MI_median_amp_with_date$record_date),
+  data = MI_median_amp_with_date
+)
+summary(model_median_amp)
+
+
+
+0.00087
+####
+Changing the clamping voltage from -70mV to 0mV was predicted to cause a significant decrease on modulation index (β = –0.0327 ± 0.0098, t(446.3) = –3.35, p < 0.001⁴), where modulation index  that represented how strongly the cell reponds to stimuli. The significant effect was only found when the MI was computed based on the median amplitude of the selected window (post-stimulation versus baseline), but not when comparing the frequency or the mean amplitude.
+
+Moreover, the random intercept for animal_id could only explain a very low variance (σ² = 0.00030), suggesting that the animal individual variation was not as important as the variation of events within the same animal (σ² = 0.01030). Although, it is unknown if the variation within the same animal was better attributed to the variation between differnet cells of the same animal, or between the recordings of the same cell.
+
+
+
+# broad type, narrow type, cell, global cell number
+#for each recoridng of my MI all, get these column from df (multiple event rows of the same recording)
+
+
+recording_info <- df %>%
+  distinct(file_prefix, broad_type, narrow_type, Cell, global_cell_number)
+
+MI_all <- MI_all %>%
+  left_join(recording_info, by = "file_prefix")
+
+MI_all$broad_type <- as.factor(MI_all$broad_type)
+MI_all$narrow_type <- as.factor(MI_all$narrow_type)
+MI_all$Cell <- as.factor(MI_all$Cell)
+MI_all$global_cell_number <- as.factor(MI_all$global_cell_number)
+
+
+# create colum for date (animaal ID)
+MI_all <- MI_all  %>%
+  mutate(record_date = substr(file_prefix, 1, 10))
+MI_all$record_date <- as.factor(MI_all$record_date)
+
+
+
+
+
+
+
+
+
+
+
+
+EPSC_MI <- MI_all |> filter(MI_all$event_type %in% "-70",)
+IPSC_MI <- MI_all |> filter(MI_all$event_type %in% "0",)
+
+
+
+
+
+hi <- EPSC_MI |> filter(EPSC_MI$narrow_type %in% "cold")
+View(hi)
+
+bkup<- EPSC_MI
+
+EPSC_MI$narrow_type[EPSC_MI$narrow_type %in% "cold"] <- "cold_pain"
+
+unique(EPSC_MI$narrow_type)
+unique(EPSC_MI$broad_type)
+
+
+na_ipsc <- IPSC_MI %>% filter(is.na(narrow_type))
+
+
+IPSC_MI$broad_type[IPSC_MI$file_prefix %in% "2026_06_04_0015"] <- "cold"
+IPSC_MI$narrow_type[IPSC_MI$file_prefix %in% "2026_06_04_0015"] <- "cold_pain"
+
+ipsc_narrow_cold <- IPSC_MI |> filter(IPSC_MI$narrow_type %in% "cold")
+View(ipsc_narrow_cold)
+
+IPSC_MI$narrow_type[IPSC_MI$file_prefix %in% "2024_06_25_0011"] <- "cold_pain"
+
+MI_all <- rbind(EPSC_MI, IPSC_MI)
+
+# save
+write.csv(MI_all,"C:/Users/silic/Desktop/MI_all.csv",row.names = FALSE)
+
+
+
+#EPSC resopnse properties
+#dependedn var, MI freq, MI mean amp, MI median amp
+model_narrow <- lmer(
+  MI_freq ~ narrow_type + (1 | EPSC_MI$record_date),
+  data = EPSC_MI
+)
+#heatpain and cold pain less response evoked EPSC compared to cold (not pain)
+
+
+
+# no sig
+model_narrow_2 <- lmer(
+  MI_median_amp ~ narrow_type + (1 | EPSC_MI$record_date),
+  data = EPSC_MI
+)
+summary(model_narrow_2)
+
+
+# cold pain has MI in mean amp higher MI than code
+# cold pain changes the mean amplkrideu more, when cold noious stimulus is appleid, compared to applicatoin of innocuous stimulus
+model_narrow_3 <- lmer(
+  MI_mean_amp ~ narrow_type + (1 | EPSC_MI$record_date),
+  data = EPSC_MI
+)
+summary(model_narrow_3)
+
+
+
+########### repsonse properties in terms of stimulus type appplication, more objective, less subjetive clasifiatuon
+
+#EPSC resopnse properties
+#dependedn var, MI freq, MI mean amp, MI median amp
+model_broad <- lmer(
+  MI_freq ~ broad_type + (1 | EPSC_MI$record_date),
+  data = EPSC_MI
+)
+summary(model_broad)
+# hot fires/respond less than cold, mech fires more/response stronger than cold?
+
+# global cell number : 0.0007322
+# record date: 0.0007933
+
+# no sig
+model_broad_2 <- lmer(
+  MI_median_amp ~ broad_type + (1 | EPSC_MI$record_date),
+  data = EPSC_MI
+)
+summary(model_broad_2)
+
+
+# hot very less than cold, mech also less than cold
+model_broad_3 <- lmer(
+  MI_mean_amp ~ broad_type + (1 | EPSC_MI$record_date),
+  data = EPSC_MI
+)
+summary(model_broad_3)
+
+
+
+###ipsc braod
+# hot smaller than cold, mechn very bigger than cold
+model_broada <- lmer(
+  MI_freq ~ broad_type + (1 | IPSC_MI$record_date),
+  data = IPSC_MI
+)
+summary(model_broada)
+
+# random efefct not useful
+# not sig
+model_broad_2a <- lm(
+  MI_median_amp ~ broad_type,
+  data = IPSC_MI
+)
+summary(model_broad_2a)
+
+#no diff
+model_broad_3a <- lmer(
+  MI_mean_amp ~ broad_type + (1 | IPSC_MI$record_date),
+  data = IPSC_MI
+)
+summary(model_broad_3a)
+
+
+
+#######################################################
+
+model_pain <- lmer(
+  MI_freq ~ pain_innocuous + (1 | EPSC_MI$record_date),
+  data = EPSC_MI
+)
+summary(model_pain)
+
+#amp mean
+model_pain_2 <- lmer(
+  MI_mean_amp ~ pain_innocuous + (1 | EPSC_MI$record_date),
+  data = EPSC_MI
+)
+summary(model_pain_2)
+
+
+# amp median
+#amp mean
+model_pain_3 <- lmer(
+  MI_median_amp ~ pain_innocuous + (1 | EPSC_MI$record_date),
+  data = EPSC_MI
+)
+summary(model_pain_3)
+
+####
+# ipsc, pain less than non pain
+model_pain_ipsc <- lmer(
+  MI_freq ~ pain_innocuous + (1 | IPSC_MI$record_date),
+  data = IPSC_MI
+)
+summary(model_pain_ipsc)
+
+# not sig
+#amp mean
+model_pain_2_ipsc <- lmer(
+  MI_mean_amp ~ pain_innocuous + (1 | IPSC_MI$record_date),
+  data = IPSC_MI
+)
+summary(model_pain_2_ipsc)
+
+
+# amp median
+# has errorm rabdom effect not meaniguld
+model_pain_3_ipsc <- lmer(
+  MI_median_amp ~ pain_innocuous + (1 | IPSC_MI$record_date),
+  data = IPSC_MI
+)
+summary(model_pain_3_ipsc)
+
+# no significant
+lm_model_pain_3_ipsc <- lm(
+  MI_median_amp ~ pain_innocuous,
+  data = IPSC_MI
+)
+anova(lm_model_pain_3_ipsc)
+
+##############
+
+
+library(stringr)
+####
+MI_all <- MI_all %>%
+  mutate(
+    pain_innocuous = case_when(
+      str_detect(narrow_type, "_pain$")      ~ "pain",
+      str_detect(narrow_type, "_innocuous$") ~ "innocuous",
+      TRUE ~ NA_character_
+    )
+  )
+
+
+# save
+write.csv(MI_all,"C:/Users/silic/Desktop/MI_all.csv",row.names = FALSE)
+
+EPSC_MI <- MI_all |> filter(MI_all$event_type %in% "-70",)
+IPSC_MI <- MI_all |> filter(MI_all$event_type %in% "0",)
+
+
+
+
+
+
+summary(model_narrow)
+
+model_narrow <- lmer(
+  MI_freq ~ broad_type + (1 | EPSC_MI$record_date),
+  data = EPSC_MI
+)
+summary(model_narrow)
+
+
+model_median_amp <- lmer(
+  MI_median_amp ~ event_type + (1 | MI_median_amp_with_date$record_date),
+  data = MI_all
+)
+summary(model_median_amp)
+
+
+
+####
+
+model_combined <- lmer(
+  MI_all$MI_freq ~ broad_type + event_type + broad_type*event_type + (1 | MI_all$record_date),
+  data = MI_all
+)
+model_combined
+
+summary(model_combined)
+anova(model_combined)   # omnibus test of the interaction term
+
+library(emmeans)
+
+emm <- emmeans(model_combined, ~ event_type | broad_type)
+contrast(emm, method = "revpairwise")   # 0 minus -70, within each broad_type
+
+
+
+
+####
+
+
+library(emmeans)
+
+# estimated marginal means for every combination of event_type x broad_type
+emm <- emmeans(model_combined, ~ event_type * broad_type)
+
+# difference-of-differences: is the (0 - (-70)) shift different between broad_type pairs?
+interaction_contrasts <- contrast(emm, interaction = "pairwise", by = NULL)
+
+interaction_contrasts
+confint(interaction_contrasts)   # add CIs alongside the p-values
+
+
+
+#### freq no sig fig
+
+m <- lmer(MI_all$MI_freq ~ pain_innocuous + event_type + pain_innocuous*event_type + 
+            (1 | MI_all$record_date),data = MI_all)
+summary(m)
+
+### need frequency for pain vs not pain
+model_freq_pain <- lmer(
+  MI_freq ~ pain_innocuous + event_type + pain_innocuous * event_type + (1 | record_date),
+  data = MI_all
+)
+summary(model_freq_pain)
+
+emm_4 <- emmeans(model_freq_pain , ~ event_type | pain_innocuous)
+interaction_contrasts_4 <- contrast(emm_4, interaction = "pairwise", by = NULL)
+
+interaction_contrasts_4
+confint(interaction_contrasts_4)
+
+emm_df_freq_4 <- as.data.frame(emm_4)   
+
+# plot mm
+pd <- position_dodge(width = 0.6
+                     )
+Marginal_m_freq_pain <- ggplot(emm_df_freq_4, aes(x = event_type, y = emmean, color = pain_innocuous, group = pain_innocuous)) +
+  geom_line(linewidth = 1) +
+  #geom_point(size = 2.5) +
+  geom_errorbar(aes(ymin = emmean - SE, ymax = emmean + SE), width = 0.2, linetype = "solid", position = pd)+
+  #scale_color_viridis_d(option = "D") + # colorblind-safe (Okabe-Ito) +
+  scale_color_manual(values = c(
+  "#E69F00", "#56B4E9"
+))+
+  scale_x_discrete(labels = c("-70" = "EPSC", "0" = "IPSC")) +
+  labs(
+    x = "Event type",
+    y = "Marginal mean of modulation index",
+    color = "Stimulus Type \n (noxious vs innocuous)",
+    title = "Predicted Modulation Index of frequency"
+  ) +
+  theme_minimal()+
+    theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 12),
+    axis.text = element_text(color = "black", size = 12),
+    axis.title = element_text(face = "plain", size = 12),
+    axis.line = element_line(linewidth = 0.4),
+    axis.ticks = element_line(linewidth = 0.4)
+  )
+
+
+# save p2 mean ##########
+ggsave("C:/Users/silic/Desktop/Marginal_m_freq_pain.tiff", Marginal_m_freq_pain, 
+       height = 3.5, width = 6,  units = "in", dpi = 300)
+
+ggsave(
+  "C:/Users/silic/Desktop/Marginal_m_freq_pain.png",
+  plot = Marginal_m_freq_pain,
+  width = 6,
+  height = 3.5,
+  dpi = 300
+)
+
+
+## pairewise pain vs non pain
+##
+int_df_4 <- as.data.frame(confint(interaction_contrasts_4))
+int_df_4
+
+pairwiseplot_5 <-ggplot(int_df_4, aes(x = estimate, y = pain_innocuous_pairwise)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey50") +
+  geom_errorbarh(aes(xmin = lower.CL, xmax = upper.CL), height = 0.15) +
+  geom_point(size = 3, color = "#0072B2") +
+  labs(x = "", y = NULL,
+       title =  "Noxious vs innocuous stimuli differences in shift of Modulation Index \n from EPSC to IPSC recording (frequency)") +
+  theme_minimal()+
+    theme(
+    legend.position = "none",
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 12),
+    axis.text = element_text(color = "black", size = 12),
+    axis.title = element_text(face = "plain", size = 12),
+    axis.line = element_line(linewidth = 0.4),
+    axis.ticks = element_line(linewidth = 0.4),
+    axis.text.y = element_text(angle = 45, hjust = 1)
+  )
+
+
+# save
+# save p2 mean ##########
+ggsave("C:/Users/silic/Desktop/pairwiseplot_pain_frequency.tiff", pairwiseplot_5 , 
+       height = 3.5, width = 6,  units = "in", dpi = 300)
+
+ggsave(
+  "C:/Users/silic/Desktop/pairwiseplot_pain_frequency.png",
+  plot = pairwiseplot_5 ,
+  width = 6,
+  height = 3.5,
+  dpi = 300
+)
+
+
+
+
+
+### try median ampltiude by pain vs not pain??
+
+##
+model_median_amp_pain <- lmer(
+  MI_median_amp ~ pain_innocuous + event_type + pain_innocuous * event_type + (1 | record_date),
+  data = MI_all
+)
+summary(model_median_amp_pain)
+
+emm_4 <- emmeans(model_median_amp_pain , ~ event_type | pain_innocuous)
+interaction_contrasts_4 <- contrast(emm_4, interaction = "pairwise", by = NULL)
+
+interaction_contrasts_4
+confint(interaction_contrasts_4)
+
+emm_df_freq_4 <- as.data.frame(emm_4)   
+
+#plot
+
+## plot narrow
+pd <- position_dodge(width = 0.6
+                     )
+Marginal_m_median_amp_pain <- ggplot(emm_df_freq_4, aes(x = event_type, y = emmean, color = pain_innocuous, group = pain_innocuous)) +
+  geom_line(linewidth = 1) +
+  #geom_point(size = 2.5) +
+  geom_errorbar(aes(ymin = emmean - SE, ymax = emmean + SE), width = 0.2, linetype = "solid", position = pd)+
+  #scale_color_viridis_d(option = "D") + # colorblind-safe (Okabe-Ito) +
+  scale_color_manual(values = c(
+  "#E69F00", "#56B4E9"
+))+
+  scale_x_discrete(labels = c("-70" = "EPSC", "0" = "IPSC")) +
+  labs(
+    x = "Event type",
+    y = "Marginal mean of modulation index",
+    color = "Stimulus Type \n (noxious vs innocuous)",
+    title = "Predicted Modulation Index of median amplitude"
+  ) +
+  theme_minimal()+
+    theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 12),
+    axis.text = element_text(color = "black", size = 12),
+    axis.title = element_text(face = "plain", size = 12),
+    axis.line = element_line(linewidth = 0.4),
+    axis.ticks = element_line(linewidth = 0.4)
+  )
+
+
+# save p2 mean ##########
+ggsave("C:/Users/silic/Desktop/Marginal_m_median_amp_pain.tiff", Marginal_m_median_amp_pain, 
+       height = 3.5, width = 6,  units = "in", dpi = 300)
+
+ggsave(
+  "C:/Users/silic/Desktop/Marginal_m_median_amp_pain.png",
+  plot = Marginal_m_median_amp_pain,
+  width = 6,
+  height = 3.5,
+  dpi = 300
+)
+
+
+## pairewise pain vs non pain
+##
+int_df_4 <- as.data.frame(confint(interaction_contrasts_4))
+int_df_4
+
+pairwiseplot_4 <-ggplot(int_df_4, aes(x = estimate, y = pain_innocuous_pairwise)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey50") +
+  geom_errorbarh(aes(xmin = lower.CL, xmax = upper.CL), height = 0.15) +
+  geom_point(size = 3, color = "#0072B2") +
+  labs(x = "", y = NULL,
+       title =  "Noxious vs innocuous stimuli differences in shift of Modulation Index \n from EPSC to IPSC recording (median amplitude)") +
+  theme_minimal()+
+    theme(
+    legend.position = "none",
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 12),
+    axis.text = element_text(color = "black", size = 12),
+    axis.title = element_text(face = "plain", size = 12),
+    axis.line = element_line(linewidth = 0.4),
+    axis.ticks = element_line(linewidth = 0.4),
+    axis.text.y = element_text(angle = 45, hjust = 1)
+  )
+
+
+
+# save p2 mean ##########
+ggsave("C:/Users/silic/Desktop/pairwiseplot_pain.tiff", pairwiseplot_4, 
+       height = 3.5, width = 6,  units = "in", dpi = 300)
+
+ggsave(
+  "C:/Users/silic/Desktop/pairwiseplot_pain.png",
+  plot = pairwiseplot_4,
+  width = 6,
+  height = 3.5,
+  dpi = 300
+)
+
+#####
+
+### try median amplitude by narrow type?
+model_amp_narrow <- lmer(
+  MI_median_amp ~ narrow_type + event_type + narrow_type * event_type + (1 | record_date),
+  data = MI_all
+)
+summary(model_amp_narrow)
+
+emm_4 <- emmeans(model_amp_narrow, ~ event_type | narrow_type)
+interaction_contrasts_4 <- contrast(emm_4, interaction = "pairwise", by = NULL)
+
+interaction_contrasts_4
+confint(interaction_contrasts_4)
+
+emm_df_amp_4 <- as.data.frame(emm_4)   # <- use emm_3, not emm_simple
+
+##
+#plot
+int_df <- as.data.frame(confint(interaction_contrasts_4))
+
+pairwiseplot_amp_all <-ggplot(int_df, aes(x = estimate, y = narrow_type_pairwise)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey50") +
+  geom_errorbarh(aes(xmin = lower.CL, xmax = upper.CL), height = 0.15) +
+  geom_point(size = 3, color = "#0072B2") +
+  labs(x = "", y = NULL,
+       title =  "All stimuli differences in shift of Modulation Index \n from EPSC to IPSC recording (median amplitude)") +
+  theme_minimal()+
+    theme(
+    legend.position = "none",
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 12),
+    axis.text = element_text(color = "black", size = 12),
+    axis.title = element_text(face = "plain", size = 12),
+    axis.line = element_line(linewidth = 0.4),
+    axis.ticks = element_line(linewidth = 0.4),
+    axis.text.y = element_text(hjust = 1)
+  )
+
+pairwiseplot_amp_all
+
+# save p2 mean ##########
+ggsave("C:/Users/silic/Desktop/pairwiseplot_amp_all.tiff", pairwiseplot_amp_all, 
+       height = 5, width = 8,  units = "in", dpi = 300)
+
+ggsave(
+  "C:/Users/silic/Desktop/pairwiseplot_amp_all.png",
+  plot = pairwiseplot_amp_all,
+  width = 8.2,
+  height = 5,
+  dpi = 300
+)
+
+
+
+
+##
+model_frequency_narrow <- lmer(
+  MI_freq ~ narrow_type + event_type + narrow_type * event_type + (1 | record_date),
+  data = MI_all
+)
+summary(model_frequency_narrow)
+
+emm_4 <- emmeans(model_frequency_narrow, ~ event_type | narrow_type)
+interaction_contrasts_4 <- contrast(emm_4, interaction = "pairwise", by = NULL)
+
+interaction_contrasts_4
+confint(interaction_contrasts_4)
+
+emm_df_freq_4 <- as.data.frame(emm_4)   # <- use emm_3, not emm_simple
+
+## plot narrow
+pd <- position_dodge(width = 0.6
+                     )
+Marginal_m_freq_narrow <- ggplot(emm_df_freq_4, aes(x = event_type, y = emmean, color = narrow_type, group = narrow_type)) +
+  geom_line(linewidth = 1) +
+  #geom_point(size = 2.5) +
+  geom_errorbar(aes(ymin = emmean - SE, ymax = emmean + SE), width = 0.2, linetype = "solid", position = pd)+
+  #scale_color_viridis_d(option = "D") + # colorblind-safe (Okabe-Ito) +
+  scale_color_manual(values = c(
+  "#E69F00", "#56B4E9", "#009E73", "#F0E442",
+  "#0072B2", "#D55E00", "#CC79A7"
+))+
+  scale_x_discrete(labels = c("-70" = "EPSC", "0" = "IPSC")) +
+  labs(
+    x = "Event type",
+    y = "Marginal mean of modulation index",
+    color = "Stimulus Type (Detailed)",
+    title = "Predicted Modulation Index of frequency"
+  ) +
+  theme_minimal()+
+    theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 12),
+    axis.text = element_text(color = "black", size = 12),
+    axis.title = element_text(face = "plain", size = 12),
+    axis.line = element_line(linewidth = 0.4),
+    axis.ticks = element_line(linewidth = 0.4)
+  )
+
+
+# save p2 mean ##########
+ggsave("C:/Users/silic/Desktop/Marginal_m_freq_narrow.tiff", Marginal_m_freq_narrow, 
+       height = 3.5, width = 6,  units = "in", dpi = 300)
+
+ggsave(
+  "C:/Users/silic/Desktop/Marginal_m_freq_narrow.png",
+  plot = Marginal_m_freq_narrow,
+  width = 6,
+  height = 3.5,
+  dpi = 300
+)
+
+##
+#plot
+int_df <- as.data.frame(confint(interaction_contrasts_4))
+
+pairwiseplot_freq_all <-ggplot(int_df, aes(x = estimate, y = narrow_type_pairwise)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey50") +
+  geom_errorbarh(aes(xmin = lower.CL, xmax = upper.CL), height = 0.15) +
+  geom_point(size = 3, color = "#0072B2") +
+  labs(x = "", y = NULL,
+       title =  "All stimuli differences in shift of Modulation Index \n from EPSC to IPSC recording (frequency)") +
+  theme_minimal()+
+    theme(
+    legend.position = "none",
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 12),
+    axis.text = element_text(color = "black", size = 12),
+    axis.title = element_text(face = "plain", size = 12),
+    axis.line = element_line(linewidth = 0.4),
+    axis.ticks = element_line(linewidth = 0.4),
+    axis.text.y = element_text(hjust = 1)
+  )
+
+pairwiseplot_amp_all
+
+# save p2 mean ##########
+ggsave("C:/Users/silic/Desktop/pairwiseplot_freq_all.tiff", pairwiseplot_freq_all, 
+       height = 5, width = 8,  units = "in", dpi = 300)
+
+ggsave(
+  "C:/Users/silic/Desktop/pairwiseplot_freq_all.png",
+  plot = pairwiseplot_freq_all,
+  width = 8.2,
+  height = 5,
+  dpi = 300
+)
+
+
+
+
+
+
+# plot for frequency
+
+##
+model_frequency <- lmer(
+  MI_freq ~ broad_type + event_type + broad_type * event_type + (1 | record_date),
+  data = MI_all
+)
+summary(model_frequency)
+
+emm_3 <- emmeans(model_frequency, ~ event_type | broad_type)
+interaction_contrasts_3 <- contrast(emm_3, interaction = "pairwise", by = NULL)
+
+interaction_contrasts_3
+confint(interaction_contrasts_3)
+
+emm_df_freq <- as.data.frame(emm_3)   # <- use emm_3, not emm_simple
+
+
+
+#
+int_df <- as.data.frame(confint(interaction_contrasts_3))
+
+pairwiseplot_broad <-ggplot(int_df, aes(x = estimate, y = broad_type_pairwise)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey50") +
+  geom_errorbarh(aes(xmin = lower.CL, xmax = upper.CL), height = 0.15) +
+  geom_point(size = 3, color = "#0072B2") +
+  labs(x = "", y = NULL,
+       title =  "Stimuli differences in shift of Modulation Index \n from EPSC to IPSC recording (frequency)") +
+  theme_minimal()+
+    theme(
+    legend.position = "none",
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 12),
+    axis.text = element_text(color = "black", size = 12),
+    axis.title = element_text(face = "plain", size = 12),
+    axis.line = element_line(linewidth = 0.4),
+    axis.ticks = element_line(linewidth = 0.4),
+    axis.text.y = element_text(angle = 45, hjust = 1)
+  )
+
+
+
+# save p2 mean ##########
+ggsave("C:/Users/silic/Desktop/pairwiseplot_broad.tiff", pairwiseplot_broad, 
+       height = 3.5, width = 6,  units = "in", dpi = 300)
+
+ggsave(
+  "C:/Users/silic/Desktop/pairwiseplot_broad.png",
+  plot = pairwiseplot_broad,
+  width = 6,
+  height = 3.5,
+  dpi = 300
+)
+
+
+###
+
+#plot freq MM
+Marginal_m_freq <- ggplot(emm_df_freq, aes(x = event_type, y = emmean, color = broad_type, group = broad_type)) +
+  geom_line(linewidth = 1) +
+  #geom_point(size = 2.5) +
+  geom_errorbar(aes(ymin = emmean - SE, ymax = emmean + SE), width = 0.2, linetype = "solid")+
+  scale_color_manual(values = c("#E69F00", "#56B4E9", "#009E73")) +  # colorblind-safe (Okabe-Ito)
+  scale_x_discrete(labels = c("-70" = "EPSC", "0" = "IPSC")) +
+  labs(
+    x = "Event type",
+    y = "Marginal mean of modulation index",
+    color = "Stimulus Type",
+    title = "Predicted Modulation Index of frequency"
+  ) +
+  theme_minimal()+
+    theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 12),
+    axis.text = element_text(color = "black", size = 12),
+    axis.title = element_text(face = "plain", size = 12),
+    axis.line = element_line(linewidth = 0.4),
+    axis.ticks = element_line(linewidth = 0.4)
+  )
+# save p2 mean ##########
+ggsave("C:/Users/silic/Desktop/Marginal_m_freq.tiff", Marginal_m_median_amp, 
+       height = 3.5, width = 6,  units = "in", dpi = 300)
+
+ggsave(
+  "C:/Users/silic/Desktop/Marginal_m_freq.png",
+  plot = Marginal_m_freq,
+  width = 6,
+  height = 3.5,
+  dpi = 300
+)
+
+
+
+  
+
+
+
+
+
+
+
+
+# median amplitude
+model_<- lmer(MI_all$MI_median_amp ~ broad_type + event_type + broad_type*event_type + 
+            (1 | MI_all$record_date),data = MI_all)
+summary(model_)
+
+emm_2 <- emmeans(model_, ~ event_type | broad_type)
+# difference-of-differences: is the (0 - (-70)) shift different between broad_type pairs?
+interaction_contrasts_2 <- contrast(emm_2, interaction = "pairwise", by = NULL)
+
+interaction_contrasts_2
+confint(interaction_contrasts_2)   # add CIs alongside the p-values
+
+library(ggplot2)
+
+emm_df <- as.data.frame(emm_simple)
+
+
+
+pd <- position_dodge(width = 0.4
+                     )
+Marginal_m_median_amp <- ggplot(emm_df, aes(x = event_type, y = emmean, color = broad_type, group = broad_type)) +
+  geom_line(linewidth = 1) +
+  #geom_point(size = 2.5) +
+  geom_errorbar(aes(ymin = emmean - SE, ymax = emmean + SE), width = 0.2, linetype = "solid", position = pd)+
+  scale_color_manual(values = c("#E69F00", "#56B4E9", "#009E73")) +  # colorblind-safe (Okabe-Ito)
+  scale_x_discrete(labels = c("-70" = "EPSC", "0" = "IPSC")) +
+  labs(
+    x = "Event type",
+    y = "Marginal mean of modulation index",
+    color = "Stimulus Type",
+    title = "Predicted Modulation Index of median amplitude"
+  ) +
+  theme_minimal()+
+    theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 12),
+    axis.text = element_text(color = "black", size = 12),
+    axis.title = element_text(face = "plain", size = 12),
+    axis.line = element_line(linewidth = 0.4),
+    axis.ticks = element_line(linewidth = 0.4)
+  )
+
+
+  
+
+
+# save p2 mean ##########
+ggsave("C:/Users/silic/Desktop/Marginal_m_median_amp.tiff", Marginal_m_median_amp, 
+       height = 3.5, width = 6,  units = "in", dpi = 300)
+
+ggsave(
+  "C:/Users/silic/Desktop/Marginal_m_median_amp.png",
+  plot = Marginal_m_median_amp,
+  width = 6,
+  height = 3.5,
+  dpi = 300
+)
+
+
+##
+int_df <- as.data.frame(confint(interaction_contrasts_2))
+
+pairwiseplot <-ggplot(int_df, aes(x = estimate, y = broad_type_pairwise)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey50") +
+  geom_errorbarh(aes(xmin = lower.CL, xmax = upper.CL), height = 0.15) +
+  geom_point(size = 3, color = "#0072B2") +
+  labs(x = "", y = NULL,
+       title =  "Stimuli differences in shift of Modulation Index \n from EPSC to IPSC recording (median amplitude)") +
+  theme_minimal()+
+    theme(
+    legend.position = "none",
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 12),
+    axis.text = element_text(color = "black", size = 12),
+    axis.title = element_text(face = "plain", size = 12),
+    axis.line = element_line(linewidth = 0.4),
+    axis.ticks = element_line(linewidth = 0.4),
+    axis.text.y = element_text(angle = 45, hjust = 1)
+  )
+
+
+
+# save p2 mean ##########
+ggsave("C:/Users/silic/Desktop/pairwiseplot.tiff", pairwiseplot, 
+       height = 3.5, width = 6,  units = "in", dpi = 300)
+
+ggsave(
+  "C:/Users/silic/Desktop/pairwiseplot.png",
+  plot = pairwiseplot,
+  width = 6,
+  height = 3.5,
+  dpi = 300
+)
+```
+
+```{r}
+# forgot to correct baseline, can try a new dataframe without changing old code
+
+bl <- read.csv ("C:/Users/silic/Downloads/events_bl_with_corrected_value.csv")
+
+
+#100 rows
+df <- bl |>
+  mutate(same_sign = sign(Amplitude..pA.) == sign(corrected_amplitude_pA ))
+
+
+
+#86 rows
+# check if old and new amplitude is same sign 
+df_true <- df[df$same_sign == "TRUE",]
+
+# 62 rows
+# check if updated amplitude is bigger than 5pA
+df_true_amp <- df_true[abs(df_true$corrected_amplitude_pA) > 5,]
+
+# 57 rows
+# check if updated baseline positioned before peak event time
+df_true_amp_time <- df_true_amp[df_true_amp$corrected_baseline_time < df_true_amp$Event.Time..s. ,]
+
+
+# 54 rows
+# check if the amp is decreased
+df_true_amp_time_decrease <- df_true_amp_time[abs(df_true_amp_time$corrected_amplitude_pA)
+                                              < abs(df_true_amp_time$Amplitude..pA.),]
+
+df_true_amp_time_decrease <- df_true_amp_time_decrease |>
+  mutate(difference = abs(Amplitude..pA.) - abs(corrected_amplitude_pA)
+  )
+
+
+# save this df_true_amp_time_decrease
+write.csv(df_true_amp_time_decrease,"C:/Users/silic/Desktop/df_true_amp_time_decrease.csv",row.names = FALSE)
+
+final_table_backUP_final_table_stim_with_date_with_cell <- final_table_stim_with_date_with_cell
+
+dat <- final_table_stim_with_date_with_cell |>
+  left_join(df_true_amp_time_decrease |> 
+              select(event_id, 
+                     corrected_baseline_index,
+                     corrected_baseline_time, 
+                     corrected_amplitude_pA,
+                     corrected_baseline_pA),
+            by = "event_id")
+summary(dat$corrected_baseline_time)
+
+# big table final_table_stim_with_date_with_cell
+
+```
+
+```{r}
+# result section tidied, goal: output all 6 models, i need detailed numebrs
+
+## TIDYING write up thesis ##
+
+# immport packages
+library(lme4)
+library(lmerTest)
+library(readr)
+
+# read data
+MI_all <- read.csv("C:/Users/silic/Desktop/MI_all.csv")
+
+# ensure correct data type
+MI_all$file_prefix <- as.factor(MI_all$file_prefix)
+
+MI_all$event_type <- as.factor(MI_all$event_type)
+
+MI_all$broad_type <- as.factor(MI_all$broad_type)
+MI_all$narrow_type <- as.factor(MI_all$narrow_type)
+MI_all$pain_innocuous <- as.factor(MI_all$pain_innocuous)
+
+# change to factor for stat model fitting
+MI_all$record_date <- as.factor(MI_all$record_date)
+# change to character to count unique date
+#MI_all$record_date <- as.character(MI_all$record_date)
+
+
+MI_all$Cell <- as.factor(MI_all$Cell)
+MI_all$global_cell_number <- as.factor(MI_all$global_cell_number)
+
+
+# count sample size n
+summary(MI_all)
+
+# 23 distinct record date (23 animals)
+unique(MI_all$record_date)
+
+# list of experimental date:
+# [1] "2023_02_28" "2023_08_10" "2023_08_18" "2023_08_23" "2023_08_31" "2023_12_20" "2024_05_17"
+# [8] "2024_05_23" "2024_06_06" "2024_06_20" "2024_06_25" "2024_08_27" "2025_01_16" "2026_01_13"
+#[15] "2026_01_14" "2026_01_20" "2026_01_22" "2026_04_16" "2026_04_23" "2026_04_28" "2026_06_04"
+#[22] "2023_02_08" "2023_08_16"
+
+
+
+# GLMM Model result!
+
+# 1.) broad type
+
+# frequency
+broad_amplitude <- lmer(MI_all$MI_median_amp ~ broad_type + event_type + broad_type*event_type + 
+            (1 | MI_all$record_date),data = MI_all)
+summary(broad_amplitude)
+
+
+# median amplitude
+broad_frequency <- lmer(MI_all$MI_freq ~ broad_type + event_type + broad_type*event_type + 
+            (1 | MI_all$record_date),data = MI_all)
+summary(broad_frequency)
+
+
+# 2.) narrow type
+
+# frequency
+narrow_frequency <- lmer(MI_all$MI_freq ~ narrow_type + event_type + narrow_type*event_type + 
+            (1 | MI_all$record_date),data = MI_all)
+summary(narrow_frequency)
+
+
+# median amplitude
+narrow_amplitude <- lmer(MI_all$MI_median_amp ~ narrow_type + event_type + narrow_type*event_type + 
+            (1 | MI_all$record_date),data = MI_all)
+summary(narrow_amplitude)
+
+# 3.) pain v.s non-pain type
+
+# frequency
+pain_frequency <- lmer(
+  MI_freq ~ pain_innocuous + event_type + pain_innocuous * event_type + (1 | record_date),
+  data = MI_all
+)
+summary(pain_frequency)
+
+# median amplitude
+pain_amplitude <- lmer(
+  MI_median_amp ~ pain_innocuous + event_type + pain_innocuous * event_type + (1 | record_date),
+  data = MI_all
+)
+summary(pain_amplitude)
+
+
+####
+#install.packages("betareg")
+#library(betareg)
+
+# rescale variable to be bounded between 0 to 1
+
+MI_all$scaled_freq <- ((MI_all$MI_freq) +1 )/2
+MI_all$scaled_median_amp <- ((MI_all$MI_median_amp) +1 )/2
+
+
+
+#broad_freq_beta <- betareg(MI_scaled_freq ~ broad_type + event_type + broad_type*event_type,
+#                    data = MI_all)
+#summary(fit_beta)
+
+
+###
+# frequency
+
+# model A
+broad_freq_beta <- glmmTMB(scaled_freq ~ broad_type + event_type + broad_type * event_type + (1 | record_date),
+  family = beta_family(link = "logit"),
+  data = MI_all
+)
+summary(broad_freq_beta)
+AIC(broad_freq_beta) #-1887
+
+
+# model B
+broad_freq_beta <- glmmTMB(scaled_freq ~ narrow_type + event_type + narrow_type * event_type + (1 | record_date),
+  family = beta_family(link = "logit"),
+  data = MI_all
+)
+summary(broad_freq_beta)
+AIC(broad_freq_beta) # -1921.4
+###
+
+
+
+
+m1 <- lmer(scaled_freq ~ broad_type + (1|record_date), data = MI_all, REML = FALSE)
+m2 <- lmer(scaled_freq ~ broad_type + event_type + (1|record_date), data = MI_all, REML = FALSE)
+m3 <- lmer(scaled_freq ~ broad_type + event_type + broad_type* event_type + (1|record_date), data = MI_all, REML = FALSE)
+
+AIC(m1) #-1861
+summary(m1)
+AIC(m2) #-1860.72
+AIC(m3) #-1859
+
+
+
+
+
+################# start here
+
+#  this wins:
+# m1 <- lmer(scaled_freq ~ broad_type + (1|record_date), data = MI_all, REML = FALSE)
+
+m1 <- lmer(scaled_freq ~ broad_type + (1|record_date), data = MI_all, REML = FALSE)
+m2 <- lmer(scaled_freq ~ broad_type + event_type + (1|record_date), data = MI_all, REML = FALSE)
+m3 <- lmer(scaled_freq ~ broad_type + event_type + broad_type* event_type + (1|record_date), data = MI_all, REML = FALSE)
+
+AIC(m1) #-1861
+AIC(m2) #-1860.72
+AIC(m3) #-1859
+
+##################
+anova(m2, m3)   # df = 2
+# start with the most complex model
+# complex - simple
+b <- 2*(logLik(m3)[1] - logLik(m2)[1])
+1 - pchisq(b, 2) # 0.227
+
+## now can drop the interaction effect, and compare m2 and m1
+
+# model 1 is the simple mode;, model 2 is the ocmplex model
+anova(m1)
+logLik(m1)
+# logLik(m1)
+#'log Lik.' 935.6432 (df=5)
+
+anova(m2)
+logLik(m2)
+#> logLik(m2)
+#'log Lik.' 936.3559 (df=6)
+
+# complex - simple
+a <- 2*(936.3559-935.6432)
+
+anova(m1, m2)  
+1-pchisq(a,1)
+###
+
+# now can choose m1
+m1 <- lmer(scaled_freq ~ broad_type + (1|record_date), data = MI_all, REML = FALSE)
+
+
+AIC(m1)
+# now compare to null
+null_model <- lmer(scaled_freq ~  1 + (1|record_date), data = MI_all, REML = FALSE)
+anova(null_model)
+logLik(null_model)
+
+anova(m1, null_model)  
+c <- 2*(logLik(m1)[1] - logLik(null_model)[1])
+1 - pchisq(c, 2) 
+
+
+
+##################### end here
+
+
+
+
+############### REDO SECTION 1 #####################################
+
+
+# median aplitude, broad type
+
+## model A
+broad_freq_beta <- glmmTMB(scaled_freq ~ broad_type + event_type + broad_type * event_type + (1 | record_date),
+  family = beta_family(link = "logit"),
+  data = MI_all
+)
+summary(broad_freq_beta)
+AIC(broad_freq_beta) #-1887
+
+
+# model B
+broad_freq_beta <- glmmTMB(scaled_freq ~ narrow_type + event_type + narrow_type * event_type + (1 | record_date),
+  family = beta_family(link = "logit"),
+  data = MI_all
+)
+summary(broad_freq_beta)
+AIC(broad_freq_beta) # -1921.4
+###
+
+
+######################
+
+
+
+
+
+
+
+# m1a wins
+m1a <- glmmTMB(scaled_median_amp ~ event_type + (1|record_date), data = MI_all,
+  family = beta_family(link = "logit")
+)
+
+
+m1b <- glmmTMB(scaled_median_amp ~ broad_type + (1|record_date), data = MI_all,
+  family = beta_family(link = "logit")
+)
+
+m2 <- glmmTMB(scaled_median_amp ~ broad_type + event_type + (1|record_date), data = MI_all,
+  family = beta_family(link = "logit")
+)
+
+m3 <- glmmTMB(scaled_median_amp ~ event_type + broad_type + broad_type* event_type + (1|record_date),
+              data = MI_all,
+              family = beta_family(link = "logit")
+)
+
+anova(m2, m3)   # df = 2
+b <- 2*(logLik(m3)[1] - logLik(m2)[1])
+1 - pchisq(b, 2) # 0.05203
+# m2 better than m3
+
+anova(m2, m1a)   # df = 2
+b <- 2*(logLik(m2)[1] - logLik(m1a)[1])
+1 - pchisq(b, 2) # 0.238
+# m1a better than m2
+
+anova(m2, m1b)   # df = 2
+b <- 2*(logLik(m2)[1] - logLik(m1b)[1])
+1 - pchisq(b, 1) # 0.0009
+# m2 better than m1b
+
+
+
+
+
+########################
+# m3 wins
+m1a <- glmmTMB(scaled_median_amp ~ event_type + (1|record_date), data = MI_all,
+  family = beta_family(link = "logit")
+)
+
+
+m1b <- glmmTMB(scaled_median_amp ~ narrow_type + (1|record_date), data = MI_all,
+  family = beta_family(link = "logit")
+)
+
+m2 <- glmmTMB(scaled_median_amp ~ narrow_type + event_type + (1|record_date), data = MI_all,
+  family = beta_family(link = "logit")
+)
+
+m3 <- glmmTMB(scaled_median_amp ~ narrow_type + event_type + narrow_type* event_type + (1|record_date),
+              data = MI_all,
+              family = beta_family(link = "logit")
+)
+
+
+anova(m2, m3)   # df = 5
+b <- 2*(logLik(m3)[1] - logLik(m2)[1])
+1 - pchisq(b, 5) # 0.00126
+
+
+
+
+### pain
+#m3 wins
+m1a <- glmmTMB(scaled_median_amp ~ event_type + (1|record_date), data = MI_all,
+  family = beta_family(link = "logit")
+)
+
+
+m1b <- glmmTMB(scaled_median_amp ~ pain_innocuous + (1|record_date), data = MI_all,
+  family = beta_family(link = "logit")
+)
+
+m2 <- glmmTMB(scaled_median_amp ~ pain_innocuous + event_type + (1|record_date), data = MI_all,
+  family = beta_family(link = "logit")
+)
+
+m3 <- glmmTMB(scaled_median_amp ~ pain_innocuous +event_type + pain_innocuous* event_type + (1|record_date),
+              data = MI_all,
+              family = beta_family(link = "logit")
+)
+
+anova(m2, m3)   # df = 5
+b <- 2*(logLik(m3)[1] - logLik(m2)[1])
+1 - pchisq(b, 1) # 0.0001
+
+
+### GLMM logit beta correct version
+
+
+
+MODEL1 <- glmmTMB(scaled_median_amp ~ narrow_type + event_type + narrow_type* event_type + (1|record_date),
+              data = MI_all,
+              family = beta_family(link = "logit")
+)
+
+MODEL2<- glmmTMB(scaled_median_amp ~ event_type + (1|record_date), data = MI_all,
+  family = beta_family(link = "logit")
+)
+# m1a already lost since it was an old model that lost previously in other catgroy
+
+
+MODEL3<- glmmTMB(scaled_median_amp ~ pain_innocuous +event_type + pain_innocuous* event_type + (1|record_date),
+              data = MI_all,
+              family = beta_family(link = "logit")
+)
+
+
+
+AIC(MODEL1)
+AIC(MODEL2)
+AIC(MODEL3)
+summary(MODEL3)
+
+
+
+############### MI frequency correct model
+
+# m1a wins
+null_freq <- glmmTMB(scaled_freq ~ 1  + event_type + (1 | record_date),
+  family = beta_family(link = "logit"),
+  data = MI_all)
+
+m1a <- glmmTMB(scaled_freq ~ broad_type  + (1 | record_date),
+  family = beta_family(link = "logit"),
+  data = MI_all)
+
+m1b <- glmmTMB(scaled_freq ~ event_type + (1 | record_date),
+  family = beta_family(link = "logit"),
+  data = MI_all)
+
+
+m2 <- glmmTMB(scaled_freq ~ broad_type + event_type + (1 | record_date),
+  family = beta_family(link = "logit"),
+  data = MI_all)
+
+
+m3 <- glmmTMB(scaled_freq ~ broad_type + event_type + broad_type * event_type + (1 | record_date),
+  family = beta_family(link = "logit"),
+  data = MI_all)
+
+
+###
+##################
+anova(m2, m3)   # df = 2
+b <- 2*(logLik(m3)[1] - logLik(m2)[1])
+1 - pchisq(b, 2) # 0.204
+
+###
+##################
+anova(m2, m1a)   # df = 1
+b <- 2*(logLik(m2)[1] - logLik(m1a)[1])
+1 - pchisq(b, 1) # 0.731
+# m1a better than m2
+
+###
+
+anova(m2, m1b)   # df = 2
+b <- 2*(logLik(m2)[1] - logLik(m1b)[1])
+1 - pchisq(b, 2) # 0
+# m2 better than m1b
+
+
+
+
+###############
+M1 <- glmmTMB(scaled_freq ~ broad_type  + (1 | record_date),
+  family = beta_family(link = "logit"),
+  data = MI_all)
+
+M2 <- glmmTMB(scaled_freq ~ narrow_type  + (1 | record_date),
+  family = beta_family(link = "logit"),
+  data = MI_all)
+M3 <- glmmTMB(scaled_freq ~ pain_innocuous + event_type + (1 | record_date),
+  family = beta_family(link = "logit"),
+  data = MI_all)
+
+AIC(M1)
+AIC(M2)
+AIC(M3)
+
+summary(M2)
+
+library(emmeans)
+
+emm_M2 <- emmeans(M2, ~ narrow_type, type = "response")
+View(emm_M2)
+emm_M2_df <- as.data.frame(emm_M2)
+emm_M2_df$MI_freq <- 2 * emm_M2_df$response - 1
+emm_M2_df
+
+
+emm_M2_df$MI_freq <- 2 * emm_M2_df$response - 1
+emm_M2_df$MI_lower <- 2 * emm_M2_df$asymp.LCL - 1
+emm_M2_df$MI_upper <- 2 * emm_M2_df$asymp.UCL - 1
+
+
+#plot(emm_M2_df)
+
+#ggplot(emm_M2_df, aes(x = narrow_type, y = MI_freq)) +
+#  geom_point(size = 3) +
+#  geom_errorbar(
+#    aes(ymin = MI_lower, ymax = MI_upper),
+#    width = 0.15
+#  ) +
+#  labs(
+#    x = "Stimulus Type",
+#    y = "Modulation Index of Frequency"
+#  ) +
+#  theme_classic()
+#### try plot again
+
+emmeans_plot_freq_narrow_update <- ggplot(
+  emm_M2_df,
+  aes(
+    x = event_type,
+    y = MI_freq,
+    color = narrow_type,
+    group = narrow_type
+  )
+) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2.5) +
+  geom_errorbar(
+    aes(ymin = MI_lower, ymax = MI_upper),
+    width = 0.2
+  ) +
+  scale_color_manual(values = c(
+    "#E69F00", "#56B4E9", "#009E73", "#F0E442",
+    "#0072B2", "#D55E00", "#CC79A7"
+  )) +
+  scale_x_discrete(
+    labels = c("-70" = "EPSC", "0" = "IPSC")
+  ) +
+  labs(
+    x = "Event type",
+    y = "Modulation Index of Frequency",
+    color = "Stimulus Type (Detailed)",
+    title = "Predicted Modulation Index of Frequency"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(
+      hjust = 0.5, face = "bold", size = 12
+    ),
+    axis.text = element_text(
+      color = "black", size = 12
+    ),
+    axis.title = element_text(
+      face = "plain", size = 12
+    ),
+    axis.line = element_line(linewidth = 0.4),
+    axis.ticks = element_line(linewidth = 0.4)
+  )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+###
+# narrow type, m1a wins
+null <- glmmTMB(scaled_freq ~ 1 + (1 | record_date),
+  family = beta_family(link = "logit"),
+  data = MI_all)
+m1a <- glmmTMB(scaled_freq ~ narrow_type  + (1 | record_date),
+  family = beta_family(link = "logit"),
+  data = MI_all)
+
+m1b <- glmmTMB(scaled_freq ~  event_type  + (1 | record_date),
+  family = beta_family(link = "logit"),
+  data = MI_all)
+
+m2 <- glmmTMB(scaled_freq ~ narrow_type + event_type  + (1 | record_date),
+  family = beta_family(link = "logit"),
+  data = MI_all)
+
+m3 <- glmmTMB(scaled_freq ~ narrow_type + event_type + narrow_type * event_type + (1 | record_date),
+  family = beta_family(link = "logit"),
+  data = MI_all)
+anova(m2, m3)   # df = 5
+b <- 2*(logLik(m3)[1] - logLik(m2)[1])
+1 - pchisq(b, 5) # 0.634
+##########
+anova(m2, m1a)   # df = 1
+b <- 2*(logLik(m2)[1] - logLik(m1a)[1])
+1 - pchisq(b, 1) # 0.97
+# m1a better than m2
+
+anova(m2, m1b)   # df = 5
+b <- 2*(logLik(m2)[1] - logLik(m1b)[1])
+1 - pchisq(b, 1) # 0
+# m2 better than m1b, but m1a better than m2
+
+
+###### pain
+
+## pain, m2 wins
+null <- glmmTMB(scaled_freq ~ 1 + (1 | record_date),
+  family = beta_family(link = "logit"),
+  data = MI_all)
+m1a <- glmmTMB(scaled_freq ~ pain_innocuous + (1 | record_date),
+  family = beta_family(link = "logit"),
+  data = MI_all)
+m1b <- glmmTMB(scaled_freq ~ event_type + (1 | record_date),
+  family = beta_family(link = "logit"),
+  data = MI_all)
+m2 <- glmmTMB(scaled_freq ~ pain_innocuous + event_type + (1 | record_date),
+  family = beta_family(link = "logit"),
+  data = MI_all)
+m3 <- glmmTMB(scaled_freq ~ pain_innocuous + event_type + pain_innocuous * event_type + (1 | record_date),
+  family = beta_family(link = "logit"),
+  data = MI_all)
+anova(m2, m3)  
+b <- 2*(logLik(m3)[1] - logLik(m2)[1])
+1 - pchisq(b, 1) # 0.064
+
+anova(m2, m1a)  
+b <- 2*(logLik(m2)[1] - logLik(m1a)[1])
+1 - pchisq(b, 1) # 0.87
+# m1a better than m2
+
+anova(m2, m1b)  
+b <- 2*(logLik(m2)[1] - logLik(m1b)[1])
+1 - pchisq(b, 1) # 0
+# m2 better than m1b
+
+
+
+
+###
+
+
+
+#m3 wins
+m1 <- lmer(scaled_median_amp ~ pain_innocuous + (1|record_date), data = MI_all, REML = FALSE)
+m2 <- lmer(scaled_median_amp ~ pain_innocuous + event_type + (1|record_date), data = MI_all, REML = FALSE)
+m3 <- lmer(scaled_median_amp ~ pain_innocuous + event_type + pain_innocuous* event_type + (1|record_date), data = MI_all, REML = FALSE)
+
+anova(m2, m3)  
+b <- 2*(logLik(m3)[1] - logLik(m2)[1])
+1 - pchisq(b, 1) # 0.000147
+
+AIC(m3)
+#AIC(m3)
+#[1] -1401.489
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+################## m2 and m1
+
+
+################# end amp
+
+
+############ narrow type??
+
+#### m3 wins # -1387
+
+m1 <- lmer(scaled_median_amp ~ narrow_type + (1|record_date), data = MI_all, REML = FALSE)
+m2 <- lmer(scaled_median_amp ~ narrow_type + event_type + (1|record_date), data = MI_all, REML = FALSE)
+m3 <- lmer(scaled_median_amp ~ narrow_type + event_type + narrow_type* event_type + (1|record_date), data = MI_all, REML = FALSE)
+
+anova(m2, m3)   # df = 5
+# start with the most complex model
+# complex - simple
+b <- 2*(logLik(m3)[1] - logLik(m2)[1])
+1 - pchisq(b, 5) # 0.001657
+AIC(m3)
+
+
+
+###
+m3 <- lmer(scaled_median_amp ~ narrow_type + event_type + narrow_type* event_type + (1|record_date), data = MI_all, REML = FALSE)
+#[1] -1396.355
+
+
+modelll <- lmer(scaled_median_amp ~ pain_innocuous + event_type + pain_innocuous* event_type + (1|record_date), data = MI_all, REML = FALSE)
+AIC(modelll) # -1401.489
+#######################################
+
+
+#-4014.118 - (-4016.031 )
+#2* 1.913
+#1-pchisq(2* 1.913,3)
+
+model_2 <- lm(Cholesterol ~ gender*individual_age,  data = Dog_data)
+summary(model_2) 
+logLik(model_2)
+anova(model_2)
+
+
+
+# model 1
+'log Lik.' -4016.031 (df=4)
+# model 2
+'log Lik.' -4015.136 (df=5)
+
+chi_sqr <- 2 * ((-4015.136) - (-4016.031))
+print(chi_sqr)
+
+
+1-pchisq(1.79,1)
+#[1] 0.1809262
+
+
+
+
+
+
+
+
+
+
+####
+
+m1 <- lmer(scaled_freq ~ pain_innocuous + (1|record_date), data = MI_all, REML = FALSE)
+m2 <- lmer(scaled_freq ~ pain_innocuous + event_type + (1|record_date), data = MI_all, REML = FALSE)
+m3 <- lmer(scaled_freq ~ pain_innocuous + event_type + pain_innocuous* event_type + (1|record_date), data = MI_all, REML = FALSE)
+
+AIC(m1, m2, m3)
+
+
+
+
+##################
+
+
+
+
+
+
+
+####
+#install.packages("glmmTMB")
+library(glmmTMB)
+
+# 1.) broad type
+
+# frequency
+broad_freq_beta <- glmmTMB(scaled_freq ~ broad_type + event_type  + broad_type * event_type + (1 | record_date),
+  family = beta_family(link = "logit"),
+  data = MI_all
+)
+summary(broad_freq_beta)
+AIC(broad_freq_beta) #-1924
+
+
+###
+
+
+
+
+# median amplitude
+broad_amp_beta <- glmmTMB(scaled_median_amp ~ broad_type * event_type + (1 | record_date),
+  family = beta_family(link = "logit"),
+  data = MI_all
+)
+summary(broad_amp_beta)
+
+# 2.) narrow type
+
+# frequency
+narrow_freq_beta <- glmmTMB(scaled_freq ~ narrow_type * event_type + (1 | record_date),
+  family = beta_family(link = "logit"),
+  data = MI_all
+)
+summary(narrow_freq_beta)
+
+
+# median amplitude
+narrow_amp_beta <- glmmTMB(scaled_median_amp ~ narrow_type * event_type + (1 | record_date),
+  family = beta_family(link = "logit"),
+  data = MI_all
+)
+summary(narrow_amp_beta)
+
+
+###
+# 3.) pain v.s non-pain type
+
+# frequency
+pain_frequency_scaled <- lmer(scaled_freq ~ pain_innocuous + event_type + pain_innocuous * event_type + (1 | record_date),
+  data = MI_all
+)
+summary(pain_frequency_scaled)
+
+# median amplitude
+pain_amplitude_scaled <- lmer(
+  scaled_median_amp ~ pain_innocuous + event_type + pain_innocuous * event_type + (1 | record_date),
+  data = MI_all
+)
+summary(pain_amplitude_scaled)
+
+
+
+
+
+
+
+##############
+
+emm_2 <- emmeans(model_, ~ event_type | broad_type)
+# difference-of-differences: is the (0 - (-70)) shift different between broad_type pairs?
+interaction_contrasts_2 <- contrast(emm_2, interaction = "pairwise", by = NULL)
+
+interaction_contrasts_2
+confint(interaction_contrasts_2)   # add CIs alongside the p-values
+
+
+
+model_narrow <- lmer(
+  MI_freq ~ narrow_type + (1 | MI_all$record_date),
+  data = EPSC_MI
+)
+#heatpain and cold pain less response evoked EPSC compared to cold (not pain)
+
+
+
+# no sig
+model_narrow_2 <- lmer(
+  MI_median_amp ~ narrow_type + (1 | EPSC_MI$record_date),
+  data = EPSC_MI
+)
+summary(model_narrow_2)
+
+
+```
+
+```{r}
+
+MODEL3<- glmmTMB(scaled_median_amp ~ pain_innocuous +event_type + pain_innocuous* event_type + (1|record_date),
+              data = MI_all,
+              family = beta_family(link = "logit")
+)
+
+
+AIC(MODEL1)
+AIC(MODEL2)
+AIC(MODEL3)
+summary(MODEL3)
+
+emm_3 <- emmeans(MODEL3, ~ event_type | pain_innocuous, type = "response")
+
+
+emm_df_3 <- as.data.frame(emm_3)
+
+emm_df_3$MI_amp <- 2 * emm_df_3$response - 1
+emm_df_3$MI_lower <- 2 * emm_df_3$asymp.LCL - 1
+emm_df_3$MI_upper <- 2 * emm_df_3$asymp.UCL - 1
+
+# plot
+
+
+emmeans_plot_amp_update <- ggplot(
+  emm_df_3,
+  aes(
+    x = event_type,
+    y = MI_amp,
+    color = pain_innocuous,
+    group = pain_innocuous
+  ))+
+  geom_line(linewidth = 1) +
+  geom_point(size = 2.5) +
+  geom_errorbar(
+    aes(ymin = MI_lower, ymax = MI_upper),
+    width = 0.2) +
+  scale_color_manual(name = "Cutaneous stimulus\n to Phox2a Mice",
+                     values = c(
+    "#E69F00", "#56B4E9"),
+    labels = c(
+    "innocuous" = "Innocuous",
+    "pain" = "Noxious"))+
+  scale_x_discrete(
+    labels = c("-70" = "EPSC", "0" = "IPSC")
+  ) +
+  # Axis and title labels
+  labs(
+    x = "Event type",
+    y = "Predicted Modulation Index of Median Amplitude of window",
+    title = "GLMM Estimated Modulation Index (amplitude post-stim vs baseline) \non EPSC/IPSC in lamina I projection neurons"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(
+      hjust = 0.5, face = "bold", size = 12
+    ),
+    axis.text = element_text(
+      color = "black", size = 12
+    ),
+    axis.title = element_text(
+      face = "plain", size = 12
+    ),
+    axis.line = element_line(linewidth = 0.4),
+    axis.ticks = element_line(linewidth = 0.4)
+  )
+
+
+
+# save p2 mean ##########
+ggsave("C:/Users/silic/Desktop/emmeans_plot_amp_update.tiff", 
+       emmeans_plot_amp_update, 
+       height = 5, width = 7,  units = "in", dpi = 300)
+
+ggsave(
+  "C:/Users/silic/Desktop/emmeans_plot_amp_update.png",
+  plot = emmeans_plot_amp_update,
+  width = 7,
+  height = 5,
+  dpi = 300
+)
+
+
+###
+
+
+
+
+
+
+emm_M2_df <- as.data.frame(emm_M2)
+emm_M2_df$MI_freq <- 2 * emm_M2_df$response - 1
+emm_M2_df
+
+
+emm_M2_df$MI_freq <- 2 * emm_M2_df$response - 1
+emm_M2_df$MI_lower <- 2 * emm_M2_df$asymp.LCL - 1
+emm_M2_df$MI_upper <- 2 * emm_M2_df$asymp.UCL - 1
+
+
+
+
+
