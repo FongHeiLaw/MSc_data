@@ -1,0 +1,883 @@
+---
+title: "analysis_4stim"
+format: html
+editor: visual
+---
+
+```{r}
+library(readr)
+library(dplyr)
+library(purrr)
+library(stringr)
+library(tidyr)
+```
+
+
+```{r}
+###################################################
+# Part 1, read all csv event file in folder, bind, add event entry number
+# need to do three catgories folder separately
+# output df: data_all_new
+###################################################
+
+
+# Folder containing your CSV files
+#folder <- "C:/Users/silic/Desktop/master_project_updated_pipeline_backup/matched_abf_4stim_redo/analyzed/4stimul"
+
+#folder <- "C:/Users/silic/Desktop/master_project_updated_pipeline_backup/matched_abf_4stim_redo/analyzed/mechan"
+folder <- "C:/Users/silic/Desktop/master_project_updated_pipeline_backup/matched_abf_4stim_redo/analyzed/thermal"
+
+#"C:/Users/silic/Desktop/master_project_updated_pipeline_backup/abf_folders_all_three_categories/four/analyzed"
+
+# mechanical folder
+#folder <- "C:/Users/silic/Desktop/master_project_updated_pipeline_backup/abf_folders_all_three_categories/mech/analyzed"
+
+#folder <- "C:/Users/silic/Desktop/master_project_updated_pipeline_backup/abf_folders_all_three_categories/thermal/analyzed"
+
+# List all CSV files with full paths
+files <- list.files(folder, pattern = "\\.csv$", full.names = TRUE)
+######################
+
+#folder_new <- "C:/Users/silic/Desktop/master_project_updated_pipeline_backup/abf_folders_all_three_categories/redo_event_no_filter/analyzed_redo"
+
+# List all CSV files with full paths
+#files_new <- list.files(folder_new, pattern = "\\.csv$", full.names = TRUE)
+
+
+#############################
+# Read + combine + add filename column
+all_data <- files %>%
+  map_df(~ read_csv(.x) %>% mutate(source_file = basename(.x)))
+
+# remove extension .csv
+all_data <- all_data %>%
+  mutate(
+    file_prefix = str_replace(source_file, "\\.csv$", ""), 
+    event_number_padded = sprintf("%05d", `Event Number`), # make event number become 5 digits
+    event_id = paste0(file_prefix, "_ev", event_number_padded, "_rec", `Record`),
+    #category = "4stim",
+    offset = 0.021,
+    # offset = 0.028
+    category = "thermal"
+    #category = "4stm"
+    #category = "mechanical"
+  )
+
+all_data <- all_data %>%
+  select(-source_file, -event_number_padded)
+
+
+#thermal_files <- all_data 
+#mech_files <- all_data 
+
+#stim_4_files <- all_data
+
+
+#all_data <- ""
+
+```
+
+
+```{r}
+all_data_combined <- rbind(thermal_files, stim_4_files, mech_files)
+
+
+all_data_combined <- all_data_combined %>%
+  mutate(event_entry_number = dplyr::row_number())
+
+
+write.csv(all_data_combined,"C:/Users/silic/Desktop/all_data_combined.csv",
+          row.names = FALSE)
+
+```
+
+```{r}
+###################################################
+# Part 2, exclude noisy recording
+###################################################
+
+
+list_rec = c("2026_01_14_0023", "2026_01_14_0025","2026_01_14_0026","2026_01_14_0027",
+             "2026_01_14_0028","2026_01_14_0029","2026_06_04_0081","2026_06_06_0008",
+             "2025_01_16_0004", "2026_06_04_0064","2026_04_28_0054","2026_04_28_0055",
+             "2026_04_28_0056","2026_04_28_0057","2024_05_23_0003","2024_05_23_0018",
+             "2026_06_06_0036","2026_06_25_0018","2024_06_25_0020","2026_01_13_0021",
+             "2026_01_13_0030","2025_01_16_0004")
+
+
+all_data_combined <- all_data_combined[!all_data_combined$file_prefix %in% list_rec,] 
+
+
+###################################################
+# Part 3, exclude previously Random forest defined noise
+# exclude noise based on the sample index of peak
+###################################################
+
+# read noise tabble
+noise_table <- read.csv("C:/Users/silic/Desktop/noise_exclude_redo.csv")
+
+
+all_data_combined <- all_data_combined[!all_data_combined$event_index %in% noise_table$event_index,] # only 
+
+# save
+write.csv(all_data_combined,
+          "C:/Users/silic/Desktop/all_data_combined_no_noise.csv",
+          row.names = FALSE)
+
+```
+
+```{r}
+###################################################
+# Part 4, plot events with huge amplitude to inspect noise???
+###################################################
+
+# select event with ampltiude, output table, use python to plot individual event and exclude
+
+
+all_data_combined_plot <- all_data_combined[
+  abs(all_data_combined$`Amplitude (pA)`) >= 800, 
+]
+
+# save
+write.csv(all_data_combined_plot,
+          "C:/Users/silic/Desktop/all_data_combined_plot.csv",
+          row.names = FALSE)
+```
+
+
+```{r}
+all_data_combined_plot <- all_data_combined_plot[
+  abs(all_data_combined$`Amplitude..pA.`) >= 700, 
+]
+
+# save
+write.csv(all_data_combined_plot,
+          "C:/Users/silic/Desktop/all_data_combined_plot.csv",
+          row.names = FALSE)
+
+```
+
+
+```{r}
+# after plotting event and decicing noise, 
+# create a new folder named noise, move the event picture of noise into this folder
+
+noise_pic <- list.files("C:/Users/silic/Desktop/noise")
+noise_pic_no_ext <- tools::file_path_sans_ext(noise_pic)
+noise_pic_clean <- sub("(_rec[0-9]+).*", "\\1", noise_pic_no_ext)
+
+# ensure datatype
+all_data_combined$event_id <- as.factor(all_data_combined$event_id)
+
+
+# exclude noise based on what picture inside my folder
+all_data_combined <- 
+  all_data_combined[!all_data_combined$event_id %in% noise_pic_clean,]
+
+
+
+# decide if need to make an amplitude threshold and exclude
+all_data_combined <- all_data_combined[
+  abs(all_data_combined$`Amplitude..pA.`) >= 7.5, 
+]
+
+# save 
+write.csv(all_data_combined,"C:/Users/silic/Desktop/all_data_combined_no_noise.csv",row.names = FALSE)
+
+```
+
+
+
+```{r}
+###################################################
+# Part 5, bind event information into my big event table
+###################################################
+
+# create new variable called offset and catagory of recording ################
+
+all_data_combined$category <- "NA"
+all_data_combined$offset <- "NA"
+
+# now assign the real value of offset and catagory of files based on my local folder content
+
+# check local folder content to decide which recording is which category
+therm_folder <- list.files("C:/Users/silic/Desktop/master_project_updated_pipeline_backup/events_thermal_stimulator")
+mech_folder <- list.files("C:/Users/silic/Desktop/master_project_updated_pipeline_backup/events_mechanical_stimulator")
+four_stim_folder <- list.files("C:/Users/silic/Desktop/master_project_updated_pipeline_backup/events_4stim")
+
+therm_folder_no_ext <- tools::file_path_sans_ext(therm_folder)
+therm_folder_clean <- sub("_events$", "", therm_folder_no_ext)
+
+mech_folder_no_ext <- tools::file_path_sans_ext(mech_folder)
+mech_folder_clean <- sub("_events$", "", mech_folder_no_ext)
+
+four_stim_folder_no_ext <- tools::file_path_sans_ext(four_stim_folder)
+four_stim_folder_clean <- sub("_events$", "", four_stim_folder_no_ext)
+```
+
+
+```{r}
+# compare my event table (without noise) with the content inside each of my category folder, if it is inside, update the category varialbe and offset according to inside which
+# create new column named category and offset, category is the category of abf files that it is from (3 protocols), offset is raw current trace offset as they dont start as zero
+all_data_combined$category[all_data_combined$file_prefix %in% therm_folder_clean ] <- "thermal"
+all_data_combined$category[all_data_combined$file_prefix %in% mech_folder_clean] <- "mechanical"
+all_data_combined$category[all_data_combined$file_prefix %in% four_stim_folder_clean] <- "4stim"
+
+all_data_combined$offset[all_data_combined$file_prefix %in% therm_folder_clean ] <- 0.021
+all_data_combined$offset[all_data_combined$file_prefix %in% mech_folder_clean] <- 0.028
+all_data_combined$offset[all_data_combined$file_prefix %in% four_stim_folder_clean] <- 0.021
+
+
+# ensure datatype
+all_data_combined$offset <- as.numeric(all_data_combined$offset)
+```
+
+
+```{r}
+###################################################
+# Part 6, bind stimulus timing, broad type, narrow type into my event table
+# from all_data_combined to final_table_stim_with_date_with_cell
+###################################################
+
+
+# import metadata
+meta <- read.csv("C:/Users/silic/Desktop/master_project_updated_pipeline_backup/metadata_with_base_name_23_to_26_updated.csv")
+
+meta <- meta %>%
+  mutate(file_name_clean = sub("\\.abf$", "", file_name, ignore.case = TRUE))
+
+
+# bind mV first
+all_data_combined <- all_data_combined %>%
+  left_join(meta %>% select(file_name_clean, mV), by = c("file_prefix" = "file_name_clean"))
+
+# bind the rest of information
+all_data_combined <- all_data_combined  %>%
+  left_join(meta %>% select(file_name_clean, broad_type, narrow_type, 
+                            Cell, date, year, month, response_notebook, stim_onset_ch2,
+                            stim_onset_ch3, stim_offset_ch2,
+                            stim_offset_ch3,total_length_sec,
+                            sweep_length_sec, sweep_count, temp, force, type, include, 
+                            genotype, comment, channel_count, channel_units, 
+                            estim, recording_number,
+                            channel_mes, quality),
+            by = c("file_prefix" = "file_name_clean")
+            )
+```
+
+
+```{r}
+# import stimulus timing table
+category_details <- read.csv("C:/Users/silic/Desktop/stim_timetable.csv")
+
+# recording category (4stim, thermal, mech) is stored in variable/column named caegory 
+all_data_combined <- all_data_combined %>%
+  left_join(category_details %>% select(Record, category, 
+                                        abs_sweep_start_time, stim_rel_time,
+                                        stim_abs_time,baseline_period_start_time,
+                                        baseline_period,stim_period_duration,
+                                        stim_period_end_time), 
+            by = c("Record", "category"))
+
+
+all_data_combined$stim_period_duration[all_data_combined$broad_type %in% "hot"] <- 2       
+all_data_combined$stim_period_duration[all_data_combined$broad_type %in% "cold"] <- 2       
+all_data_combined$stim_period_duration[all_data_combined$broad_type %in% "mechanical"] <- 1     
+
+# check na of broad type and narrow type
+sum(is.na(all_data_combined$stim_period_duration))  
+
+# ensure data type
+all_data_combined$broad_type <- as.factor(all_data_combined$broad_type)
+all_data_combined$narrow_type <- as.factor(all_data_combined$narrow_type)
+
+all_data_combined$temp <- as.factor(all_data_combined$temp)
+all_data_combined$force <- as.factor(all_data_combined$force)
+all_data_combined$file_prefix <- as.factor(all_data_combined$file_prefix)
+all_data_combined$category <- as.factor(all_data_combined$category)
+all_data_combined$mV <- as.factor(all_data_combined$mV)
+
+
+# create record date column 
+all_data_combined <- all_data_combined %>%
+  mutate(record_date = substr(file_prefix, 1, 10))
+
+```
+
+```{r}
+# count distribution of number of cells recorded per animal (per day_
+cell_summary <- all_data_combined %>%           
+  group_by(record_date) %>%
+  summarise(n_unique_cells = n_distinct(Cell))
+summary(cell_summary$n_unique_cells)         # count distribution of number of cells recorded per animal (per day_
+
+# create global cell number column
+cell_lookup <- all_data_combined %>%
+  distinct(record_date, Cell)%>%
+  arrange(record_date, Cell) %>%
+  mutate(global_cell_number = row_number())
+
+
+# join cell number global, to main df
+all_data_combined <- all_data_combined %>%
+  left_join(cell_lookup, by = c("record_date", "Cell"))
+
+# this code should have been done earlier, but keep it here to keep df name working
+# update stim period end time, stijmulus time (absolute seconds from t=0) + stim period (1 or 2s)
+all_data_combined$stim_period_end_time <- all_data_combined$stim_abs_time + all_data_combined$stim_period_duration
+
+# save
+write.csv(cell_summary,
+          "C:/Users/silic/Desktop/cell_summary_v2.csv",
+          row.names = FALSE)
+
+
+write.csv(cell_lookup,
+          "C:/Users/silic/Desktop/cell_lookup_v2.csv",
+          row.names = FALSE)
+
+write.csv(all_data_combined,
+          "C:/Users/silic/Desktop/all_data_combined_with_date_with_cell.csv",
+          row.names = FALSE)
+
+
+```
+
+
+```{r}
+
+names(df)
+df <- final_table_clean 
+
+```
+
+
+```{r}
+df <- df |>
+  rename(
+    event_time   = "Event.Time..s.",
+    amplitude    = "Amplitude..pA.",
+    event_type   = mV,       
+    stim_start   = stim_abs_time,
+    baseline_start = baseline_period_start_time
+  )
+
+
+# calculate pre/post from event time vs stimulus time, still same nrow
+df <- df |>
+  mutate(
+    pre_or_post = case_when(
+      event_time >= baseline_start & event_time < baseline_start + 5 ~ "pre",
+      event_time > stim_start & event_time <= stim_start + stim_period_duration ~ "post",
+      TRUE ~ NA_character_
+    ),
+    amplitude_raw = amplitude,
+    amplitude = abs(amplitude)
+  ) |>
+  filter(!is.na(pre_or_post))
+# 130241 observation
+
+
+# ensure data type
+df <- df |>
+  mutate(
+    file_prefix  = as.factor(file_prefix),
+    event_type = as.factor(event_type),
+    # event type is EPSC/ IPSC, number eitehr 0 or -70mV
+    Record      = as.factor(Record))
+
+View(df)
+
+
+# save
+#write.csv(df,"C:/Users/silic/Desktop/df_v4.csv",row.names = FALSE)
+
+
+
+### 1. Count how many Records exist per file_prefix 
+records_per_file <- df |>
+  group_by(file_prefix) |>
+  summarise(n_records = n_distinct(Record), .groups = "drop")
+
+#View(records_per_file)
+
+### 2. Get stim_period_duration per file 
+stim_duration_per_file <- df |>
+  group_by(file_prefix) |>
+  summarise(stim_period_duration = first(stim_period_duration), .groups = "drop")
+
+#View(stim_duration_per_file)
+
+
+#View(df)
+
+### 3. Pooled event counts per file_prefix / event_type / pre_or_post
+summary_df <- df |>
+  group_by(file_prefix, pre_or_post) |>
+  summarise(
+    n_events   = n(),
+    mean_amp   = mean(amplitude_raw, na.rm = TRUE),
+    median_amp = median(amplitude_raw, na.rm = TRUE),
+    mad_amp    = mad(amplitude_raw, na.rm = TRUE),
+    sd_amp     = sd(amplitude_raw, na.rm = TRUE),
+    sem_amp    = sd(amplitude_raw, na.rm = TRUE) / sqrt(n_events),
+    .groups = "drop"
+  ) |>
+  left_join(records_per_file, by = "file_prefix") |>
+  left_join(stim_duration_per_file, by = "file_prefix") |>
+  mutate(
+    duration = if_else(pre_or_post == "pre", 5 * n_records, stim_period_duration * n_records),
+    freq = n_events / duration
+  )
+
+
+
+summary_df_sorted_correct <- summary_df |>
+  arrange(n_events)
+
+
+#View(df)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+###### old code
+
+noise_pic <- list.files("C:/Users/silic/Desktop/newplot/noise")
+print(noise_pic)
+
+#"C:\Users\silic\Desktop\newplot\noise"
+
+#print(noise_pic_no_ext)
+noise_pic_no_ext <- tools::file_path_sans_ext(noise_pic)
+
+
+noise_pic_clean <- sub("(_rec[0-9]+).*", "\\1", noise_pic_no_ext)
+#print(noise_pic_clean)
+#noise_pic_clean <- sub("_big_pos_amp_event$", "", noise_pic_no_ext)
+
+final_table_stim_with_date_with_cell_no_noise$event_id <- as.factor(final_table_stim_with_date_with_cell_no_noise$event_id)
+
+# 225 pic needs exclude
+final_table_stim_with_date_with_cell_no_noise <- 
+  final_table_stim_with_date_with_cell[!final_table_stim_with_date_with_cell$event_id %in% noise_pic_clean,]
+
+
+# 812204 now!
+
+# 213 pic needs further exclude
+
+# 811991 observavtion without large amplitude noise!
+write.csv(final_table_stim_with_date_with_cell_no_noise,
+          "C:/Users/silic/Desktop/final_table_stim_with_date_with_cell_no_noise.csv",
+          row.names = FALSE)
+
+final_table_stim_with_date_with_cell_no_noise <- read.csv( "C:/Users/silic/Desktop/final_table_stim_with_date_with_cell_no_noise.csv")
+
+names(final_table_stim_with_date_with_cell_no_noise)
+
+## exclude event with amplityude below -7.5 and < 7.5, try
+
+#final_table_stim_with_date_with_cell_no_noise_bk <- final_table_stim_with_date_with_cell_no_noise
+
+
+final_table_clean <- final_table_stim_with_date_with_cell_no_noise[
+  abs(final_table_stim_with_date_with_cell_no_noise$`Amplitude..pA.`) >= 7.5, 
+]
+# 522944 observation
+
+summary(final_table_clean)
+
+# save 
+write.csv(final_table_clean,"C:/Users/silic/Desktop/final_table_clean.csv",row.names = FALSE)
+
+```
+
+
+```{r}
+
+
+df <- final_table_clean 
+
+```
+
+
+
+
+
+```{r}
+
+data_all_amp50 <- data_all |> filter(data_all$`Amplitude (pA)` < -50)
+
+data_all_amp50 <- data_all_amp50 |> filter(data_all_amp50$`Amplitude (pA)` > -50.5)
+
+
+# Source - https://stackoverflow.com/q/44013535
+# Posted by rnorouzian, modified by community. See post 'Timeline' for change history
+# Retrieved 2026-08-17, License - CC BY-SA 4.0
+
+set.seed(123458)
+
+sampled = sample(data_all_amp50$event_entry_number, size = 20, replace = TRUE)
+
+#plot(sampled)
+
+data_all_amp50 <- data_all_amp50[data_all_amp50$event_entry_number %in% sampled,]
+
+View(data_all_amp50)
+
+write.csv(data_all_amp50,"C:/Users/silic/Desktop/data_all_amp50.csv",
+          row.names = FALSE)
+
+
+# read old noise table
+
+#noise_table <- read.csv("C:/Users/silic/Desktop/master_project_updated_pipeline_backup/noise_labeling/events_to_label/other_noise/final_excluded_noise_0550am_22July2026.csv")
+
+noise_table2 <- read.csv("C:/Users/silic/Desktop/noise_exclude_redo.csv")
+
+data_all_new # 812429, new detecetd events, with correct filtering (no filter for 80 files)
+# trace looks fine without filter
+# now go exclude noise, amp > 800, amp < -900, peak contam, bl contam, RF type 1-7
+
+data_all <- data_all_new
+
+
+all_files_selected <- data_all[!data_all$event_index %in% noise_table2$event_index,] # only 484 events were noise
+
+# 811945 events now
+
+write.csv(all_files_selected,"C:/Users/silic/Desktop/all_files_selected.csv",
+          row.names = FALSE)
+
+
+####################################################
+#noise 1 to 7 or sth, idk, then peak contam, then amp >800
+# then check amp >-900 last time those 17 pictures? idk
+#####################################################
+all_file_name_df <- unique(all_files_selected$file_prefix) # 472 recordings
+
+# exclude whole noisy recordings???
+list_rec = c("2026_01_14_0023", "2026_01_14_0025","2026_01_14_0026","2026_01_14_0027",
+             "2026_01_14_0028","2026_01_14_0029","2026_06_04_0081","2026_06_06_0008",
+             "2025_01_16_0004", "2026_06_04_0064","2026_04_28_0054","2026_04_28_0055",
+             "2026_04_28_0056","2026_04_28_0057","2024_05_23_0003","2024_05_23_0018",
+             "2026_06_06_0036","2026_06_25_0018","2024_06_25_0020","2026_01_13_0021",
+             "2026_01_13_0030","2025_01_16_0004")
+
+
+retain_df <- all_files_selected[all_files_selected$file_prefix %in% list_rec,] # 17791 observations from noisy recordings
+
+exc_recording_num <- unique(retain_df$file_prefix)
+#print(exc_recording_num)
+
+
+final_dataset_redo_no_noise <- all_files_selected[!all_files_selected$file_prefix %in% list_rec,] # 794153 obs finished noise exclusion
+
+write.csv(final_dataset_redo_no_noise,
+          "C:/Users/silic/Desktop/final_dataset_redo_no_noise.csv",
+          row.names = FALSE)
+
+
+
+
+# my notch filter was distorting my trace....really
+
+df<- data_all
+# unique file prefixes
+unique(df$file_prefix)
+
+# randomly pick 1 event per file_prefix
+set.seed(123)  # optional, for reproducibility
+sampled_df <- df %>%
+  group_by(file_prefix) %>%
+  slice_sample(n = 1) %>%
+  ungroup()
+
+
+
+write.csv(sampled_df,"C:/Users/silic/Desktop/sampled_dfplot.csv",
+          row.names = FALSE)
+
+
+####plot inspect
+
+backup_all_files_new <- all_files_new
+# unique file prefixes
+unique(all_files_new$file_prefix)
+
+
+# randomly pick 2 event per file_prefix
+set.seed(123)  # optional, for reproducibility
+sampled_df <- all_files_new %>%
+  group_by(file_prefix) %>%
+  slice_sample(n = 2) %>%
+  ungroup()
+
+
+
+write.csv(sampled_df,"C:/Users/silic/Desktop/sampled_dfplot.csv",
+          row.names = FALSE)
+
+
+```
+
+```{r}
+###
+# 2024_06_25_0020 completely wrong
+# 2026_01_20_0029 sweep 4
+
+data_all_new
+
+######################################### create new variabe cakked offset and catagory of recording ################
+
+# i have a list of detecetd events stored/sorted in folders according to their category/protocol
+# list file in that category, get the list of file name of detectd .csv, remove extension
+
+# chec category, append new colu,mn
+therm_folder <- list.files("C:/Users/silic/Desktop/master_project_updated_pipeline_backup/events_thermal_stimulator")
+mech_folder <- list.files("C:/Users/silic/Desktop/master_project_updated_pipeline_backup/events_mechanical_stimulator")
+four_stim_folder <- list.files("C:/Users/silic/Desktop/master_project_updated_pipeline_backup/events_4stim")
+
+therm_folder_no_ext <- tools::file_path_sans_ext(therm_folder)
+therm_folder_clean <- sub("_events$", "", therm_folder_no_ext)
+
+mech_folder_no_ext <- tools::file_path_sans_ext(mech_folder)
+mech_folder_clean <- sub("_events$", "", mech_folder_no_ext)
+
+four_stim_folder_no_ext <- tools::file_path_sans_ext(four_stim_folder)
+four_stim_folder_clean <- sub("_events$", "", four_stim_folder_no_ext)
+
+
+final_table_exc_rec <- data_all_new
+final_table_exc_rec$category <- "NA"
+final_table_exc_rec$offset <- "NA"
+
+
+# compare my event table (without noise) with the content inside each of my category folder, if it is inside, update the category varialbe and offset according to inside which
+# create new column named category and offset, category is the category of abf files that it is from (3 protocols), offset is raw current trace offset as they dont start as zero
+final_table_exc_rec$category[final_table_exc_rec$file_prefix %in% therm_folder_clean ] <- "thermal"
+final_table_exc_rec$category[final_table_exc_rec$file_prefix %in% mech_folder_clean] <- "mechanical"
+final_table_exc_rec$category[final_table_exc_rec$file_prefix %in% four_stim_folder_clean] <- "4stim"
+
+final_table_exc_rec$offset[final_table_exc_rec$file_prefix %in% therm_folder_clean ] <- 0.021
+final_table_exc_rec$offset[final_table_exc_rec$file_prefix %in% mech_folder_clean] <- 0.028
+final_table_exc_rec$offset[final_table_exc_rec$file_prefix %in% four_stim_folder_clean] <- 0.021
+
+names(final_table_exc_rec)
+summary(final_table_exc_rec)
+
+final_table_exc_rec$offset <- as.numeric(final_table_exc_rec$offset)
+
+```
+
+```{r}
+############### data wranggling to set stimulus time, period
+library(dplyr)
+
+# import metadata, 44 variables, updated df including broad_type and narrow_type column names, replaced +10mV to 0mV
+meta <- read.csv("C:/Users/silic/Desktop/master_project_updated_pipeline_backup/metadata_with_base_name_23_to_26_updated.csv")
+
+meta <- meta %>%
+  mutate(file_name_clean = sub("\\.abf$", "", file_name, ignore.case = TRUE))
+
+#meta$file_name_clean
+
+
+
+final_table_exc_rec_with_mV <- final_table_exc_rec %>%
+  left_join(meta %>% select(file_name_clean, mV), by = c("file_prefix" = "file_name_clean"))
+
+final_table_exc_rec_with_all_info <- final_table_exc_rec_with_mV  %>%
+  left_join(meta %>% select(file_name_clean, broad_type, narrow_type, 
+                            Cell, date, year, month, response_notebook, stim_onset_ch2,
+                            stim_onset_ch3, stim_offset_ch2,
+                            stim_offset_ch3,total_length_sec,
+                            sweep_length_sec, sweep_count, temp, force, type, include, 
+                            genotype, comment, channel_count, channel_units, estim, recording_number,
+                            channel_mes, quality),
+            by = c("file_prefix" = "file_name_clean")
+            )
+
+names(final_table_exc_rec_with_all_info)
+
+# as the event time column is the absolute event peak time to the start of the recording, not that sweep, we need to extract the relative event peak time in seconds, compared to the start of the sweep
+# for 4stm there is no gap between sweep
+# I used excel and save in a csv instead, except the post stim period of 4srtim category file is empty
+# becuas e4stin have three types of categories, mech 4stim 1s, hot and heat 2s
+
+
+# import table
+category_details <- read.csv("C:/Users/silic/Desktop/stim_timetable.csv")
+
+# recording category (4stim, thermal, mech) is stored in variable/column named caegory 
+final_table_stim <- final_table_exc_rec_with_all_info %>%
+  left_join(category_details %>% select(Record, category, 
+                                        abs_sweep_start_time, stim_rel_time,
+                                        stim_abs_time,baseline_period_start_time,
+                                        baseline_period,stim_period_duration,
+                                        stim_period_end_time), 
+            by = c("Record", "category"))
+
+names(final_table_stim)
+
+
+
+final_table_stim$stim_period_duration[final_table_stim$broad_type %in% "hot"] <- 2       # #272896 NA after assigning 
+final_table_stim$stim_period_duration[final_table_stim$broad_type %in% "cold"] <- 2        # #169564 NA after assigning to cold
+final_table_stim$stim_period_duration[final_table_stim$broad_type %in% "mechanical"] <- 1     # 0 NA
+
+sum(is.na(final_table_stim$stim_period_duration))   # should match your 1158
+
+
+
+summary(final_table_stim)
+
+final_table_stim$broad_type <- as.factor(final_table_stim$broad_type)
+final_table_stim$narrow_type <- as.factor(final_table_stim$narrow_type)
+
+final_table_stim$temp <- as.factor(final_table_stim$temp)
+final_table_stim$force <- as.factor(final_table_stim$force)
+final_table_stim$file_prefix <- as.factor(final_table_stim$file_prefix)
+final_table_stim$category <- as.factor(final_table_stim$category)
+final_table_stim$mV <- as.factor(final_table_stim$mV)
+
+
+summary_table <- final_table_stim %>%          # this table provodes summary of all events detail, including recording_number column
+  summarise(across(everything(), n_distinct)) # or I can also use this and count num of element : unique(final_table_stim$recording_number) 
+# reminder, i have 4 broad type, 8 narrow type, 3 category of protocol (abf files catgory), 2 different offset number
+
+print(summary_table)
+
+
+# create record date column so that I can count how many day (animal was used)
+final_table_stim_with_date <- final_table_stim %>%
+  mutate(record_date = substr(file_prefix, 1, 10))
+
+```
+
+```{r}
+###
+cell_summary <- final_table_stim_with_date %>%             #this tablecontains two column, first column is day of expeimtn, second column is the number of cells recprded in that day
+  group_by(record_date) %>%
+  summarise(n_unique_cells = n_distinct(Cell))
+summary(cell_summary$n_unique_cells)                     # count distribution of number of cells recorded per animal (per day_
+Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+  1.000   2.000   2.000   2.261   3.000   4.000 
+
+# after counting numebr of cell recored each day, count numebr ofe cell recorded/events inclyded in the whole final no noise dataset
+cell_lookup <- final_table_stim_with_date %>%
+  distinct(record_date, Cell)%>%
+  arrange(record_date, Cell) %>%
+  mutate(global_cell_number = row_number())
+# a total of 52 cells were included in analysis to test the main hypothesis
+View(cell_lookup)
+
+# join back cell number global, to main df
+final_table_stim_with_date_with_cell <- final_table_stim_with_date %>%
+  left_join(cell_lookup, by = c("record_date", "Cell"))
+
+# this code should have been done earlier, but keep it here to keep df name working
+# update stim period end time, stijmulus time (absolute seconds from t=0) + stim period (1 or 2s)
+final_table_stim_with_date_with_cell$stim_period_end_time <-final_table_stim_with_date_with_cell$stim_abs_time + final_table_stim_with_date_with_cell$stim_period_duration
+
+View(final_table_stim_with_date_with_cell)
+
+
+
+write.csv(cell_summary,
+          "C:/Users/silic/Desktop/cell_summary_v2.csv",
+          row.names = FALSE)
+
+write.csv(summary_table,
+          "C:/Users/silic/Desktop/summary_table_v2.csv",
+          row.names = FALSE)
+
+
+write.csv(cell_lookup,
+          "C:/Users/silic/Desktop/cell_lookup_v2.csv",
+          row.names = FALSE)
+
+write.csv(final_table_stim_with_date_with_cell,
+          "C:/Users/silic/Desktop/final_table_stim_with_date_with_cell_v2.csv",
+          row.names = FALSE)
+
+
+```
+
+```{r}
+######
+
+noise_pic <- list.files("C:/Users/silic/Desktop/newplot/noise")
+print(noise_pic)
+
+#"C:\Users\silic\Desktop\newplot\noise"
+
+#print(noise_pic_no_ext)
+noise_pic_no_ext <- tools::file_path_sans_ext(noise_pic)
+
+
+noise_pic_clean <- sub("(_rec[0-9]+).*", "\\1", noise_pic_no_ext)
+#print(noise_pic_clean)
+#noise_pic_clean <- sub("_big_pos_amp_event$", "", noise_pic_no_ext)
+
+final_table_stim_with_date_with_cell_no_noise$event_id <- as.factor(final_table_stim_with_date_with_cell_no_noise$event_id)
+
+# 225 pic needs exclude
+final_table_stim_with_date_with_cell_no_noise <- 
+  final_table_stim_with_date_with_cell[!final_table_stim_with_date_with_cell$event_id %in% noise_pic_clean,]
+
+
+# 812204 now!
+
+# 213 pic needs further exclude
+
+# 811991 observavtion without large amplitude noise!
+write.csv(final_table_stim_with_date_with_cell_no_noise,
+          "C:/Users/silic/Desktop/final_table_stim_with_date_with_cell_no_noise.csv",
+          row.names = FALSE)
+
+final_table_stim_with_date_with_cell_no_noise <- read.csv( "C:/Users/silic/Desktop/final_table_stim_with_date_with_cell_no_noise.csv")
+
+names(final_table_stim_with_date_with_cell_no_noise)
+
+## exclude event with amplityude below -7.5 and < 7.5, try
+
+#final_table_stim_with_date_with_cell_no_noise_bk <- final_table_stim_with_date_with_cell_no_noise
+
+
+final_table_clean <- final_table_stim_with_date_with_cell_no_noise[
+  abs(final_table_stim_with_date_with_cell_no_noise$`Amplitude..pA.`) >= 7.5, 
+]
+# 522944 observation
+
+summary(final_table_clean)
+
+# save 
+write.csv(final_table_clean,"C:/Users/silic/Desktop/final_table_clean.csv",row.names = FALSE)
+
+```
+
+
