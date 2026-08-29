@@ -1,0 +1,372 @@
+---
+title: "R Studio exclude noise"
+format: html
+editor: visual
+---
+
+## Quarto
+
+```{r}
+library(readr)
+library(dplyr)
+library(purrr)
+library(stringr)
+library(tidyr)
+```
+
+```{r}
+###################################################
+# Part 2, exclude noisy recording
+###################################################
+
+# read table
+all_data_combined <- read.csv("C:/Users/silic/Desktop/all_data_combined.csv")
+
+# define recording
+list_rec = c("2026_01_14_0023", "2026_01_14_0025","2026_01_14_0026","2026_01_14_0027",
+             "2026_01_14_0028","2026_01_14_0029",
+             "2026_06_04_0081","2026_06_06_0008",
+             "2025_01_16_0004", "2026_06_04_0064",
+             "2026_04_28_0054","2026_04_28_0055",
+             "2026_04_28_0056","2026_04_28_0057",
+             "2024_05_23_0003","2024_05_23_0018",
+             "2026_06_06_0036","2026_06_25_0018",
+             "2024_06_25_0020","2026_01_13_0021",
+             "2026_01_13_0030","2025_01_16_0004")
+
+
+all_data_combined <- all_data_combined[!all_data_combined$file_prefix %in% list_rec,]
+```
+
+```{r}
+###################################################
+# Part 3, exclude previously Random forest defined noise
+# exclude noise based on the sample index of peak
+###################################################
+
+# read noise tabble
+noise_table <- read.csv("C:/Users/silic/Desktop/noise_exclude_redo.csv")
+
+
+all_data_combined <- all_data_combined[!all_data_combined$event_index %in% noise_table$event_index,] # only 
+
+# save
+write.csv(all_data_combined,
+          "C:/Users/silic/Desktop/all_data_combined_no_noise.csv",
+          row.names = FALSE)
+```
+
+```{r}
+###################################################
+# Part 4, plot events with huge amplitude to inspect noise???
+###################################################
+
+# select event with ampltiude, output table, use python to plot individual event and exclude
+
+
+# 241 observation
+all_data_combined_plot <- all_data_combined[
+  abs(all_data_combined$Amplitude..pA.) >= 800, 
+]
+
+# save
+write.csv(all_data_combined_plot,
+          "C:/Users/silic/Desktop/all_data_combined_plot.csv",
+          row.names = FALSE)
+
+
+# amp 800, window_samples = 7, sigma_samples = 1.5
+
+
+
+# exclude those between 600 and 800 and are noise
+
+
+all_data_combined_plot <- all_data_combined[
+  abs(all_data_combined$Amplitude..pA.) >= 200, 
+]
+
+all_data_combined_plot <- all_data_combined_plot[
+  abs(all_data_combined_plot$Amplitude..pA.) <= 200.1, 
+]
+
+write.csv(all_data_combined_plot,
+          "C:/Users/silic/Desktop/all_data_combined_plot.csv",
+          row.names = FALSE)
+
+summary(all_data_combined)
+
+```
+
+```{r}
+# after plotting event and decicing noise, 
+# create a new folder named noise, move the event picture of noise into this folder
+
+# "C:\Users\silic\Desktop\inspect_amp\noise"
+noise_pic <- list.files("C:/Users/silic/Desktop/inspect_amp/")
+noise_pic_no_ext <- tools::file_path_sans_ext(noise_pic)
+noise_pic_clean <- sub("(_rec[0-9]+).*", "\\1", noise_pic_no_ext)
+
+# ensure datatype
+all_data_combined$event_id <- as.factor(all_data_combined$event_id)
+
+#print(noise_pic_clean)
+
+inspect_amp <- 
+  all_data_combined[all_data_combined$event_id %in% noise_pic_clean,]
+# 785697
+```
+
+```{r}
+# decide if need to make an amplitude threshold and exclude
+# no need, dont want
+
+# save 
+write.csv(all_data_combined,"C:/Users/silic/Desktop/all_data_combined_no_noise.csv",row.names = FALSE)
+
+# save 
+write.csv(all_data_combined,"C:/Users/silic/Desktop/all_data_combined_all_info.csv",row.names = FALSE)
+
+```
+
+```{r}
+###################################################
+# Part 5, bind event information into my big event table
+###################################################
+
+all_data_combined <- read.csv("C:/Users/silic/Desktop/all_data_combined_no_noise.csv")
+
+
+# wrong 4stim category
+#View(all_data_combined)
+
+all_data_combined$category <- as.factor(
+  sub("^4stm$", "4stim", as.character(all_data_combined$category))
+)
+
+backuo <- all_data_combined
+
+
+
+```
+
+```{r}
+###################################################
+# Part 6, bind stimulus timing, broad type, narrow type into my event table
+# from all_data_combined to final_table_stim_with_date_with_cell
+###################################################
+
+
+# import metadata
+meta <- read.csv("C:/Users/silic/Desktop/master_project_updated_pipeline_backup/metadata_with_base_name_23_to_26_updated.csv")
+
+meta$mV[meta$mV == 70] <- -70
+
+
+#meta_na <- meta |> filter(file_name %in% "2026_01_14_0023.abf")
+
+
+meta <- meta %>%
+  mutate(file_name_clean = sub("\\.abf$", "", file_name, ignore.case = TRUE))
+
+names(meta)
+
+
+
+# bind mV first
+#all_data_combined <- all_data_combined %>%
+#  left_join(meta %>% select(file_name_clean, mV), by = c("file_prefix" = #"file_name_clean"))
+
+
+names(all_data_combined)
+names(meta)
+# bind the rest of information
+
+
+all_data_combined <- all_data_combined  %>%
+  left_join(meta %>% select(file_name_clean, mV, broad_type, narrow_type, 
+                            Cell, date, year, month, response_notebook,
+                            stim_onset_ch2,
+                            stim_onset_ch3, stim_offset_ch2,
+                            stim_offset_ch3,total_length_sec,
+                            sweep_length_sec, sweep_count, temp, force, type,
+                            include, 
+                            genotype, comment, channel_count, channel_units, 
+                            estim, recording_number,
+                            channel_mes, quality),
+            by = c("file_prefix" = "file_name_clean")
+            )
+
+names(all_data_combined)
+
+summary(all_data_combined)
+unique(all_data_combined$file_prefix)
+
+# ensure data type
+all_data_combined$broad_type <- as.factor(all_data_combined$broad_type)
+all_data_combined$narrow_type <- as.factor(all_data_combined$narrow_type)
+
+all_data_combined$temp <- as.factor(all_data_combined$temp)
+all_data_combined$force <- as.factor(all_data_combined$force)
+all_data_combined$file_prefix <- as.factor(all_data_combined$file_prefix)
+all_data_combined$category <- as.factor(all_data_combined$category)
+all_data_combined$mV <- as.factor(all_data_combined$mV)
+all_data_combined$Record <- as.factor(all_data_combined$Record)
+
+
+#unique(all_data_combined$file_prefix)
+
+
+```
+
+```{r}
+# import stimulus timing table
+category_details <- read.csv("C:/Users/silic/Desktop/stim_timetable.csv")
+
+
+# stim period duration are NA on purpose, for 4stim category of data
+summary(category_details)
+# recording category (4stim, thermal, mech) is stored in variable/column named caegory 
+
+
+
+
+category_details$category <- as.factor(category_details$category)
+category_details$Record <- as.factor(category_details$Record)
+
+
+all_data_combined <- all_data_combined %>%
+  left_join(category_details %>% select(Record, category, 
+                                        abs_sweep_start_time, stim_rel_time,
+                                        stim_abs_time,
+                                        baseline_period_start_time,
+                                        baseline_period,stim_period_duration,
+                                        stim_period_end_time), 
+            by = c("Record", "category"))
+
+
+
+summary(all_data_combined)
+
+```
+
+
+```{r}
+
+
+all_data_combined$stim_period_duration[all_data_combined$broad_type %in% "hot"] <- 2       
+all_data_combined$stim_period_duration[all_data_combined$broad_type %in% "cold"] <- 2       
+all_data_combined$stim_period_duration[all_data_combined$broad_type %in% "mechanical"] <- 1     
+
+# check na of broad type and narrow type
+sum(is.na(all_data_combined$stim_period_duration))
+```
+
+
+```{r}
+# ensure data type
+all_data_combined$broad_type <- as.factor(all_data_combined$broad_type)
+all_data_combined$narrow_type <- as.factor(all_data_combined$narrow_type)
+
+all_data_combined$temp <- as.factor(all_data_combined$temp)
+all_data_combined$force <- as.factor(all_data_combined$force)
+all_data_combined$file_prefix <- as.factor(all_data_combined$file_prefix)
+all_data_combined$category <- as.factor(all_data_combined$category)
+all_data_combined$mV <- as.factor(all_data_combined$mV)
+
+
+
+all_data_combined$stim_period_duration <- as.numeric(all_data_combined$stim_period_duration)
+
+
+all_data_combined$stim_period_end_time <- all_data_combined$stim_abs_time + all_data_combined$stim_period_duration
+
+
+
+####
+```
+
+
+```{r}
+# create record date column 
+all_data_combined <- all_data_combined %>%
+  mutate(record_date = substr(file_prefix, 1, 10))
+
+
+summary(all_data_combined)
+
+```
+
+```{r}
+# count distribution of number of cells recorded per animal (per day_
+cell_summary <- all_data_combined %>%           
+  group_by(record_date) %>%
+  summarise(n_unique_cells = n_distinct(Cell))
+summary(cell_summary$n_unique_cells)         # count distribution of number of cells recorded per animal (per day_
+
+# create global cell number column
+cell_lookup <- all_data_combined %>%
+  distinct(record_date, Cell)%>%
+  arrange(record_date, Cell) %>%
+  mutate(global_cell_number = row_number())
+
+
+```
+
+
+```{r}
+names(cell_lookup)
+names(all_data_combined)
+```
+
+
+```{r}
+# join cell number global, to main df
+all_data_combined <- all_data_combined %>%
+  left_join(cell_lookup, by = c("record_date", "Cell"))
+```
+
+```{r}
+summary(all_data_combined)
+
+# count distribution of number of cells recorded per animal (per day_
+rec_summary <- all_data_combined %>%           
+  group_by(category) %>%
+  summarise(n_unique_recording = n_distinct(file_prefix))
+
+View(rec_summary) 
+# 300, 58, 94, 4srtim, mech, thermal
+
+
+```
+
+
+```{r}
+# this code should have been done earlier, but keep it here to keep df name working
+# update stim period end time, stijmulus time (absolute seconds from t=0) + stim period (1 or 2s)
+
+
+summary(all_data_combined)
+
+
+all_data_combined$stim_period_duration <- as.numeric(all_data_combined$stim_period_duration)
+
+
+all_data_combined$stim_period_end_time <- all_data_combined$stim_abs_time + all_data_combined$stim_period_duration
+
+# save
+write.csv(cell_summary,
+          "C:/Users/silic/Desktop/cell_summary_v2.csv",
+          row.names = FALSE)
+
+
+write.csv(cell_lookup,
+          "C:/Users/silic/Desktop/cell_lookup_v2.csv",
+          row.names = FALSE)
+
+write.csv(all_data_combined,
+          "C:/Users/silic/Desktop/all_data_combined_with_date_with_cell.csv",
+          row.names = FALSE)
+
+
+```
